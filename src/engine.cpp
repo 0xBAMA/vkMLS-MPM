@@ -194,11 +194,6 @@ void PrometheusInstance::Draw () {
 	GlobalData* uniformData = ( GlobalData * ) GlobalUBO.allocation->GetMappedData();
 	*uniformData = globalData;
 
-	// reset the reset flag
-	if ( globalData.reset != 0 ) {
-		globalData.reset = 0;
-	}
-
 	// start the command buffer recording
 	VK_CHECK( vkBeginCommandBuffer( cmd, &cmdBeginInfo ) );
 
@@ -206,15 +201,42 @@ void PrometheusInstance::Draw () {
 	vkutil::transition_image( cmd, Accumulator.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 
-	// invoke ClearGrid
+	if ( globalData.reset != 0 ) {
+		globalData.reset = 0;
 
-	// invoke PointToGrid
+		// Precomputing the volume term for the points
+		PointToGrid.invoke( cmd );
+		EstimateVolume.invoke( cmd );
+	}
 
-	// invoke GridUpdate
+	// main sim loop - 4 steps
+	{
+		// clearing the grid can just be clears
+		VkImageSubresourceRange range = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = VK_REMAINING_MIP_LEVELS,
+			.baseArrayLayer = 0,
+			.layerCount = VK_REMAINING_ARRAY_LAYERS
+		};
+		vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, { 0 }, 1, &range );
+		VkImageMemoryBarrier2 barriers[ 3 ] = {
+			makeBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+			makeBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+			makeBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+		};
+		VkDependencyInfo barrierDependency {
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.imageMemoryBarrierCount = 3,
+			.pImageMemoryBarriers = barriers
+		};
+		vkCmdPipelineBarrier2( cmd, &barrierDependency );
+	}
+	PointToGrid.invoke( cmd );
+	UpdateGrid.invoke( cmd );
+	GridToPoint.invoke( cmd );
 
-	// invoke GridToPoint
-
-	// invoke PointRaster
+	// Point drawing
 	PointRaster.invoke( cmd );
 
 	// compute shader to accumulate the raster result + put the resolved final image into the drawImage...
@@ -591,6 +613,9 @@ void PrometheusInstance::initResources () {
 
 		// destroying images
 		destroyImage( Accumulator );
+		destroyImage( velocityXAtomic );
+		destroyImage( velocityYAtomic );
+		destroyImage( massAtomic );
 	});
 }
 
