@@ -11,7 +11,7 @@ struct point {
 	vec2 velocity;
 
 	mat2 C;
-	mat2 Vs;
+	mat2 Fs;
 
 	float mass;
 	float v0;

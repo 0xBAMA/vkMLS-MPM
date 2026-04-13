@@ -12,7 +12,7 @@ struct point {
 	vec2 velocity;
 
 	mat2 C;
-	mat2 Vs;
+	mat2 Fs;
 
 	float mass;
 	float v0;
@@ -26,30 +26,35 @@ layout ( set = 0, binding = 1, std430 ) buffer pointBuffer {
 layout ( r32i, set = 0, binding = 2 ) uniform iimage2D velocityXAtomic;
 layout ( r32i, set = 0, binding = 3 ) uniform iimage2D velocityYAtomic;
 layout ( r32i, set = 0, binding = 4 ) uniform iimage2D massAtomic;
+layout ( rg32f, set = 0, binding = 5 ) uniform image2D resolvedAtomics;
 
 void main () {
+	// bounds checking
 	ivec2 loc = ivec2( gl_GlobalInvocationID.xy );
 	ivec2 size = ivec2( imageSize( massAtomic ).xy );
-	// bounds checking
 	if ( all( lessThan( loc, size ) ) ) {
-		// normalization for the momentum accumulated on the grid
+	// normalization for the momentum accumulated on the grid
 		// also apply forces like gravity ( mouse repulsion )
 		// should the new quantities be written to new images? floating point/filtered...
+		int vX = imageLoad( velocityXAtomic, loc ).r;
+		int vY = imageLoad( velocityYAtomic, loc ).r;
+		vec2 v = vec2( vX, vY ) / GlobalData.fixedPointScalar;
+
 		int mass = imageLoad( massAtomic, loc ).r;
 		if ( mass != 0 ) { // there has been some write to this cell
 			// normalizing by dividing by the mass
-			int vX = imageLoad( velocityXAtomic, loc ).r;
-			int vY = imageLoad( velocityYAtomic, loc ).r;
-			vec2 v = vec2( vX, vY ) / GlobalData.fixedPointScalar;
 			v /= ( float( mass ) / GlobalData.fixedPointScalar );
-
-			// "slip" condition at the boundaries
-			if ( loc.x < 2 || loc.x > ( size.x - 3 ) ) v.x = 0.0f;
-			if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
-
-			// storing back fixed point value of V
-			imageStore( velocityXAtomic, loc, ivec4( v.x * GlobalData.fixedPointScalar ) );
-			imageStore( velocityYAtomic, loc, ivec4( v.y * GlobalData.fixedPointScalar ) );
 		}
+
+		v += GlobalData.dT * vec2( 0.0f, GlobalData.gravityScalar );
+
+		// "slip" condition at the boundaries
+		if ( loc.x < 2 || loc.x > ( size.x - 3 ) ) v.x = 0.0f;
+		if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
+
+		// storing back fixed point value of V
+		//	imageStore( velocityXAtomic, loc, ivec4( v.x * GlobalData.fixedPointScalar ) );
+		//	imageStore( velocityYAtomic, loc, ivec4( v.y * GlobalData.fixedPointScalar ) );
+		imageStore( resolvedAtomics, loc, vec4( v.xyxy ) );
 	}
 }
