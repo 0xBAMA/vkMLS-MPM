@@ -200,6 +200,9 @@ void PrometheusInstance::Draw () {
 	// put the core images into a general format
 	vkutil::transition_image( cmd, Accumulator.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
+	vkutil::transition_image( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
+	vkutil::transition_image( cmd, velocityYAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
+	vkutil::transition_image( cmd, massAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 
 	if ( globalData.reset != 0 ) {
 		globalData.reset = 0;
@@ -219,11 +222,12 @@ void PrometheusInstance::Draw () {
 			.baseArrayLayer = 0,
 			.layerCount = VK_REMAINING_ARRAY_LAYERS
 		};
-		vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, { 0 }, 1, &range );
+		VkClearColorValue clearColor = { 0, 0, 0, 0 };
+		vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
 		VkImageMemoryBarrier2 barriers[ 3 ] = {
-			makeBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
-			makeBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
-			makeBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+			makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+			makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+			makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
 		};
 		VkDependencyInfo barrierDependency {
 			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -598,11 +602,11 @@ void PrometheusInstance::initResources () {
 
 	{
 		// buffers used in particle-to-grid
-		velocityXAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		velocityXAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) velocityXAtomic.image, "X Velocity Accumulator" );
-		velocityYAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		velocityYAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) velocityYAtomic.image, "Y Velocity Accumulator" );
-		massAtomic		= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		massAtomic		= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) massAtomic.image, "Mass Accumulator" );
 	}
 
@@ -710,7 +714,7 @@ void PrometheusInstance::initComputePasses () {
 			// dispatch for all the pixels
 			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
 
-			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT  );
+			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
 			VkDependencyInfo barrierDependency {
 				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 				.bufferMemoryBarrierCount = 1,
@@ -720,11 +724,309 @@ void PrometheusInstance::initComputePasses () {
 		};
 	}
 
-		// PointToGrid - runs per point
+	{ // PointToGrid - runs per point
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			PointToGrid.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) PointToGrid.descriptorSetLayout, "Point To Grid Descriptor Set Layout" );
+		}
 
-		// UpdateGrid - runs per grid cell
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-		// GridToPoint - runs per point
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &PointToGrid.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &PointToGrid.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) PointToGrid.pipelineLayout, "Point To Grid Pipeline Layout" );
+
+			VkShaderModule PointToGridShader;
+			if ( !vkutil::load_shader_module("../shaders/pointToGrid.comp.glsl.spv", device, &PointToGridShader ) ) {
+				fmt::print( "Error when building the Point To Grid Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) PointToGridShader, "Point To Grid Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = PointToGridShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = PointToGrid.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &PointToGrid.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) PointToGrid.pipeline, "Point To Grid Compute Pipeline" );
+			vkDestroyShaderModule( device, PointToGridShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, PointToGrid.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, PointToGrid.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, PointToGrid.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		PointToGrid.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			PointToGrid.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, PointToGrid.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, PointToGrid.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGrid.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGrid.pipelineLayout, 0, 1, &PointToGrid.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			PointToGrid.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, PointToGrid.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointToGrid.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
+
+			// writes to the buffers must complete
+			VkImageMemoryBarrier2 barriers[ 3 ] = {
+				makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+			};
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 3,
+				.pImageMemoryBarriers = barriers
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
+	{ // UpdateGrid - runs per grid cell
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			UpdateGrid.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) UpdateGrid.descriptorSetLayout, "Update Grid Descriptor Set Layout" );
+		}
+
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &UpdateGrid.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &UpdateGrid.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) UpdateGrid.pipelineLayout, "Update Grid Pipeline Layout" );
+
+			VkShaderModule UpdateGridShader;
+			if ( !vkutil::load_shader_module("../shaders/updateGrid.comp.glsl.spv", device, &UpdateGridShader ) ) {
+				fmt::print( "Error when building the Update Grid Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) UpdateGridShader, "Update Grid Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = UpdateGridShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = PointToGrid.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &UpdateGrid.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) UpdateGrid.pipeline, "Update Grid Compute Pipeline" );
+			vkDestroyShaderModule( device, UpdateGridShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, UpdateGrid.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, UpdateGrid.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, UpdateGrid.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		UpdateGrid.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			UpdateGrid.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, UpdateGrid.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, UpdateGrid.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, UpdateGrid.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, UpdateGrid.pipelineLayout, 0, 1, &UpdateGrid.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			UpdateGrid.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, UpdateGrid.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &UpdateGrid.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( SimResolution.width + 15 ) / 16, ( SimResolution.height + 15 ) / 16, 1 );
+
+			// writes to the buffers must complete
+			VkImageMemoryBarrier2 barriers[ 3 ] = {
+				makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+			};
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 3,
+				.pImageMemoryBarriers = barriers
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
+	{ // GridToPoint - runs per point
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			GridToPoint.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) GridToPoint.descriptorSetLayout, "Grid To Point Descriptor Set Layout" );
+		}
+
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &GridToPoint.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &GridToPoint.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) GridToPoint.pipelineLayout, "Grid To Point Pipeline Layout" );
+
+			VkShaderModule GridToPointShader;
+			if ( !vkutil::load_shader_module("../shaders/gridToPoint.comp.glsl.spv", device, &GridToPointShader ) ) {
+				fmt::print( "Error when building the Grid To Point Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) GridToPointShader, "Grid To Point Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = GridToPointShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = GridToPoint.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &GridToPoint.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) GridToPoint.pipeline, "Grid To Point Compute Pipeline" );
+			vkDestroyShaderModule( device, GridToPointShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, GridToPoint.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, GridToPoint.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, GridToPoint.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		GridToPoint.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			GridToPoint.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, GridToPoint.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, GridToPoint.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GridToPoint.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GridToPoint.pipelineLayout, 0, 1, &GridToPoint.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			GridToPoint.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, GridToPoint.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &GridToPoint.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
+
+			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.bufferMemoryBarrierCount = 1,
+				.pBufferMemoryBarriers = &barrier,
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
 
 	{ // point raster
 		{ // descriptor layout

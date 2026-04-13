@@ -20,6 +20,7 @@ layout ( r32i, set = 0, binding = 3 ) uniform iimage2D velocityYAtomic;
 layout ( r32i, set = 0, binding = 4 ) uniform iimage2D massAtomic;
 
 void main () {
-	// operates on the mass grids
+
+	// operates on points, using information written to the mass grids prior
 
 }

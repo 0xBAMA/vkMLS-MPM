@@ -21,4 +21,7 @@ layout ( r32i, set = 0, binding = 4 ) uniform iimage2D massAtomic;
 
 void main () {
 
+	// points make atomic writes on the buffers
+		// ( momentum, mass )
+
 }

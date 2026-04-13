@@ -24,6 +24,11 @@ void main () {
 	ivec2 size = ivec2( imageSize( massAtomic ).xy );
 	// bounds checking
 	if ( all( lessThan( loc, size ) ) ) {
+
+		// normalization for the momentum accumulated on the grid
+		// also apply forces like gravity ( mouse repulsion )
+			// should the new quantities be written to new images? floating point/filtered...
+
 		// imageStore( velocityXAtomic, loc, ivec4( 0 ) );
 		// imageStore( velocityYAtomic, loc, ivec4( 0 ) );
 		// imageStore( massAtomic, loc, ivec4( 0 ) );

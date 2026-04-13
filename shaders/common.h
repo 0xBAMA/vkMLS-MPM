@@ -19,6 +19,8 @@ layout( set = 0, binding = 0 ) uniform globalData {
 	float brightnessScalar;
 	float resolutionScalar;
 
+	float gravityScalar;
+
 	// nsight layout: vec2u; vec2; int; int; float; float;
 } GlobalData;
 //=========================================================

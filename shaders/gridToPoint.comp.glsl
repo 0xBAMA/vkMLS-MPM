@@ -21,4 +21,6 @@ layout ( r32i, set = 0, binding = 4 ) uniform iimage2D massAtomic;
 
 void main () {
 
+	// compute grid influence on the point
+
 }
