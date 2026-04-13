@@ -104,7 +104,7 @@ void PrometheusInstance::Init () {
 	initComputePasses();
 	initImgui();
 	initDefaultData();
-	initLights();
+	initPoints();
 
 	// everything went fine
 	isInitialized = true;
@@ -149,10 +149,8 @@ void PrometheusInstance::Draw () {
 	static float mouseX, mouseY;
 	SDL_GetMouseState( &mouseX, &mouseY );
 	globalData.mouseLoc = glm::vec2( mouseX, mouseY );
-	globalData.floatBufferResolution = glm::uvec2( ImageBufferResolution.width, ImageBufferResolution.height );
 	globalData.presentBufferResolution = glm::uvec2( drawExtent.width, drawExtent.height );
 	globalData.frameNumber = frameNumber;
-	globalData.framesSinceReset++;
 	globalData.resolutionScalar = renderScale;
 
 	// write directly from the memory on the PrometheusInstance
@@ -162,29 +160,15 @@ void PrometheusInstance::Draw () {
 	// reset the reset flag
 	if ( globalData.reset != 0 ) {
 		globalData.reset = 0;
-		globalData.framesSinceReset = 0;
 	}
 
 	// start the command buffer recording
 	VK_CHECK( vkBeginCommandBuffer( cmd, &cmdBeginInfo ) );
 
 	// put the core images into a general format
-	vkutil::transition_image( cmd, XYZImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
+	vkutil::transition_image( cmd, Accumulator.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
-	vkutil::transition_image( cmd, lineColorAttachment.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 
-	vkutil::transition_image( cmd, PreviewAtlas.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
-	vkutil::transition_image( cmd, PickISImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
-	vkutil::transition_image( cmd, SpectrumISImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
-
-	// compute shader to do one update of the raytrace process
-	Raytrace.invoke( cmd );
-
-	// line drawing
-	lineRaster.invoke( cmd );
-
-	// accumulate the result into a buffer
-	Accumulate.invoke( cmd );
 
 	// compute shader to accumulate the raster result + put the resolved final image into the drawImage...
 	BufferPresent.invoke( cmd );
@@ -261,30 +245,8 @@ void PrometheusInstance::MainLoop () {
 				quit = true;
 			}
 
-			if ( e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_M ) {
-				showMenu = !showMenu;
-			}
-
-			if ( e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_N ) {
-				lightManager.MouseLightToUserLight();
-				globalData.reset = 1;
-			}
-
 			const bool shift = SDL_GetModState() & SDL_KMOD_LSHIFT;
 			const float amount = shift ? 0.1f : 0.01f;
-
-			if ( e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_EQUALS ) {
-				globalData.brightnessScalar *= 1.0f + amount;
-			}
-
-			if ( e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_MINUS ) {
-				globalData.brightnessScalar /= 1.0f + amount;
-			}
-
-			if ( e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_K ) {
-				lightManager.clearList();
-				globalData.reset = 1;
-			}
 
 			const bool* kb = SDL_GetKeyboardState( NULL );
 			// if ( kb[ SDL_SCANCODE_RIGHT ] || kb[ SDL_SCANCODE_D ] ) {
@@ -293,16 +255,6 @@ void PrometheusInstance::MainLoop () {
 			// }
 			if ( kb[ SDL_SCANCODE_R ] ) {
 				globalData.reset = true;
-			}
-
-			if ( kb[ SDL_SCANCODE_D ] ) {
-				globalData.reset = true;
-				lightManager.MouseLight->parameters.rotation -= amount;
-			}
-
-			if ( kb[ SDL_SCANCODE_A ] ) {
-				globalData.reset = true;
-				lightManager.MouseLight->parameters.rotation += amount;
 			}
 
 			if ( kb[ SDL_SCANCODE_T ] && shift ) {
@@ -332,155 +284,8 @@ void PrometheusInstance::MainLoop () {
 			// some imgui UI to test
 			// ImGui::ShowDemoWindow();
 
-			if ( showMenu ) {
-				if ( ImGui::Begin( "Edit" ) ) {
-
-					ImGui::SliderFloat( "Brightness Scale", &globalData.brightnessScalar, 0.3f, 5.0f, "%.5f", ImGuiSliderFlags_Logarithmic ); // this should also apply to the raster step + accumulate step
-					ImGui::SliderFloat( "Resolution Scale", &renderScale, 0.05f, 1.0f ); // this should also apply to the raster step + accumulate step
-					ImGui::Separator();
-					ImGui::Separator();
-
-					{
-						static std::chrono::time_point< std::chrono::system_clock > tLastFileListUpdate = std::chrono::system_clock::now();
-
-						static std::vector< std::string > savesList;
-						if ( savesList.size() == 0 ) { // get the list
-							struct pathLeafString {
-								std::string operator()( const std::filesystem::directory_entry &entry ) const {
-									return entry.path().string();
-								}
-							};
-							std::filesystem::path p( "../lightingConfigs/" );
-							std::filesystem::directory_iterator start( p );
-							std::filesystem::directory_iterator end;
-							std::transform( start, end, std::back_inserter( savesList ), pathLeafString() );
-							std::sort( savesList.begin(), savesList.end() ); // sort these alphabetic
-							tLastFileListUpdate = std::chrono::system_clock::now();
-						}
-
-						#define LISTBOX_SIZE_MAX 256
-						const char *listboxItems[ LISTBOX_SIZE_MAX ];
-						uint32_t i;
-						for ( i = 0; i < LISTBOX_SIZE_MAX && i < savesList.size(); ++i ) {
-							listboxItems[ i ] = savesList[ i ].c_str();
-						}
-
-						ImGui::Text( "Files In /lightingConfigs/" );
-						static int listboxSelected = 0;
-						ImGui::ListBox( " ", &listboxSelected, listboxItems, i, 24 );
-
-						if ( ImGui::Button( " Load " ) ) {
-							// LoadLightConfig( savesList[ listboxSelected ] );
-							YAML::Node root = YAML::LoadFile( "../lightingConfigs/" + savesList[ listboxSelected ] );
-
-							if ( root[ "globalBrightness" ] ) {
-								globalData.brightnessScalar = root[ "globalBrightness" ].as< float >();
-							}
-
-							// clear the light list
-							lightManager.clearList();
-
-							// load the config specified
-							YAML::Node lightsNode = root[ "lights" ];
-							if ( lightsNode && lightsNode.IsSequence() ) {
-								// list of lights in the file
-								for ( const auto& node : lightsNode ) {
-									Light l;
-
-									l.parameters.position.x = node[ "positionX" ].as<float>();
-									l.parameters.position.y = node[ "positionY" ].as<float>();
-									l.parameters.rotation = node[ "rotation" ].as<float>();
-									l.parameters.angleScalar = node[ "angleScalar" ].as<float>();
-									l.parameters.cauchyMix = node[ "cauchyMix" ].as<float>();
-									l.parameters.repeats = node[ "repeats" ].as<int>();
-									l.parameters.emitterSpacing = node[ "emitterSpacing" ].as<float>();
-									l.parameters.width = node[ "width" ].as<float>();
-
-									// light source
-									l.PDFPick = node[ "lightSource" ].as<int>();
-
-									// gels / filter stack
-									if ( node[ "gels" ] ) {
-										l.filterStack = node[ "gels" ].as<std::vector<int>>();
-									}
-
-									l.dirtyFlag = true;
-									lightManager.lights.push_back( l );
-								}
-							}
-							globalData.reset = 1;
-						}
-
-						// triggering the thing every 10 seconds
-						if ( ( tLastFileListUpdate - std::chrono::system_clock::now() ) > 10s ) {
-							savesList.clear();
-						}
-
-						ImGui::SameLine();
-						ImGui::InputText( "##SaveFile", currentExportFilename, IM_ARRAYSIZE( currentExportFilename ) );
-						ImGui::SameLine();
-						if ( ImGui::Button( " Save " ) ) {
-
-							// output the light list
-							YAML::Node outputNode;
-							outputNode[ "globalBrightness" ] = globalData.brightnessScalar;
-							for ( auto& l : lightManager.lights ) {
-								YAML::Node node;
-								node[ "positionX" ] = l.parameters.position.x;
-								node[ "positionY" ] = l.parameters.position.y;
-								node[ "rotation" ] = l.parameters.rotation;
-								node[ "angleScalar" ] = l.parameters.angleScalar;
-								node[ "cauchyMix" ] = l.parameters.cauchyMix;
-								node[ "repeats" ] = l.parameters.repeats;
-								node[ "emitterSpacing" ] = l.parameters.emitterSpacing;
-								node[ "width" ] = l.parameters.width;
-
-								node[ "lightSource" ] = l.PDFPick;
-								node[ "gels" ] = l.filterStack;
-
-								outputNode[ "lights" ].push_back( node );
-							}
-							std::ofstream fout( "../lightingConfigs/" + std::string( currentExportFilename ) + ".yaml" );
-							fout << outputNode;
-
-							savesList.clear(); // triggers rebuild of list
-						}
-					}
-
-					/*
-					static ImTextureID myTextureID = ( ImTextureID ) ImGui_ImplVulkan_AddTexture(
-						defaultSamplerLinear,
-						lineColorAttachment.imageView,
-						VK_IMAGE_LAYOUT_GENERAL
-					);
-					ImGui::Image( myTextureID, ImVec2( 386, 256 ) );
-					*/
-
-					/*
-					if ( ImGui::Button( "Add Preset" ) ) {
-						// add the new one
-						presets.push_back( lastPreset );
-
-						// overwrite the file
-						YAML::Node outputNode;
-						for ( auto& p: presets ) {
-							outputNode.push_back( p );
-						}
-						std::ofstream fout( "../src/presets.yaml" );
-						fout << outputNode;
-					}
-					*/
-
-					lightManager.ImGuiDrawLightList();
-				}
-				ImGui::End();
-			}
-
 			// make imgui calculate internal draw structures
 			ImGui::Render();
-
-			// some stuff to do, if we need to update buffers or textures associated with the lights
-			lightManagerMaintenance();
 
 			// we're ready to draw the next frame
 			Draw();
@@ -723,408 +528,21 @@ void PrometheusInstance::initResources () {
 	// create the accumulator texture
 	{
 		VkExtent3D bufferExtent = { ImageBufferResolution.width, ImageBufferResolution.height, 1 };
-		XYZImage = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
-		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) XYZImage.image, "Accumulator" );
-	}
-
-	// create the raster attachments
-	{
-		lineColorAttachment = createImage( { ImageBufferResolution.width, ImageBufferResolution.height, 1 }, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT );
-		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) lineColorAttachment.image, "Line Color Attachment" );
-	}
-
-	// buffer for the rays
-	{
-		rayBuffer = createBuffer( globalData.numBounces * globalData.numRays * sizeof( raySegment ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY );
-		SetDebugName( VK_OBJECT_TYPE_BUFFER, ( uint64_t ) rayBuffer.buffer, "Ray Segment Buffer" );
-	}
-
-	{
-		LightParametersBuffer = createBuffer( 256 * sizeof( LightEmitterParameters ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU );
-		SetDebugName( VK_OBJECT_TYPE_BUFFER, ( uint64_t ) LightParametersBuffer.buffer, "Light Parameter UBO" );
+		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) Accumulator.image, "Accumulator" );
 	}
 
 	// make sure to clean up at the end
 	mainDeletionQueue.push_function([ & ] () {
 		// destroying buffers
 		destroyBuffer( GlobalUBO );
-		destroyBuffer( rayBuffer );
-		destroyBuffer( LightParametersBuffer );
 
 		// destroying images
-		destroyImage( XYZImage );
-		destroyImage( lineColorAttachment );
-		destroyImage( PreviewAtlas );
-		destroyImage( SpectrumISImage );
-		destroyImage( PickISImage );
+		destroyImage( Accumulator );
 	});
 }
 
 void PrometheusInstance::initComputePasses () {
-	{ // Raytrace update
-		{ // descriptor layout
-			DescriptorLayoutBuilder builder;
-			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
-			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the ray buffer
-			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ); // the iCDF texture for light spectra
-			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ); // the discrete IS texture for lights
-			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // the parameters for the light emitters
-			Raytrace.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
-			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) Raytrace.descriptorSetLayout, "Raytrace Descriptor Set Layout" );
-		}
-
-		{ // pipeline layout + compute pipeline
-			VkPushConstantRange pushConstant{};
-			pushConstant.offset = 0;
-			pushConstant.size = sizeof( PushConstants );
-			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-			VkPipelineLayoutCreateInfo computeLayout{};
-			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			computeLayout.pNext = nullptr;
-			computeLayout.pSetLayouts = &Raytrace.descriptorSetLayout;
-			computeLayout.setLayoutCount = 1;
-			computeLayout.pPushConstantRanges = &pushConstant;
-			computeLayout.pushConstantRangeCount = 1;
-
-			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &Raytrace.pipelineLayout ) );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) Raytrace.pipelineLayout, "Raytrace Pipeline Layout" );
-
-			VkShaderModule RaytraceShader;
-			if ( !vkutil::load_shader_module("../shaders/raytrace.comp.glsl.spv", device, &RaytraceShader ) ) {
-				fmt::print( "Error when building the Raytrace Compute Shader\n" );
-			}
-			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) RaytraceShader, "Raytrace Shader Module" );
-
-			VkPipelineShaderStageCreateInfo stageinfo{};
-			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-			stageinfo.pNext = nullptr;
-			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-			stageinfo.module = RaytraceShader;
-			stageinfo.pName = "main";
-
-			VkComputePipelineCreateInfo computePipelineCreateInfo{};
-			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-			computePipelineCreateInfo.pNext = nullptr;
-			computePipelineCreateInfo.layout = Raytrace.pipelineLayout;
-			computePipelineCreateInfo.stage = stageinfo;
-
-			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &Raytrace.pipeline ) );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) Raytrace.pipeline, "Raytrace Compute Pipeline" );
-			vkDestroyShaderModule( device, RaytraceShader, nullptr );
-
-			// deletors for the pipeline layout + pipeline
-			mainDeletionQueue.push_function( [ & ] () {
-				vkDestroyDescriptorSetLayout( device, Raytrace.descriptorSetLayout, nullptr );
-				vkDestroyPipelineLayout( device, Raytrace.pipelineLayout, nullptr );
-				vkDestroyPipeline( device, Raytrace.pipeline, nullptr );
-			});
-		}
-
-		// invoke() lambda
-		Raytrace.invoke = [ & ] ( VkCommandBuffer cmd ){
-			// dynamic descriptor allocation, to bind a texture
-			Raytrace.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, Raytrace.descriptorSetLayout );
-			{
-				DescriptorWriter writer;
-				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, rayBuffer.buffer, globalData.numBounces * globalData.numRays * sizeof( raySegment ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
-				writer.write_image( 2, SpectrumISImage.imageView, defaultSamplerLinear, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER );
-				writer.write_image( 3, PickISImage.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER );
-				writer.write_buffer( 4, LightParametersBuffer.buffer, 256 * sizeof( LightEmitterParameters ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.update_set( device, Raytrace.descriptorSet );
-			}
-
-			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Raytrace.pipeline );
-
-			// bind the descriptor set, as just recorded
-			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Raytrace.pipelineLayout, 0, 1, &Raytrace.descriptorSet, 0, nullptr );
-
-			// get a new wang RNG seed
-			Raytrace.pushConstants.wangSeed = genWangSeed();
-
-			// send the current value of the push constants
-			vkCmdPushConstants( cmd, Raytrace.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &Raytrace.pushConstants );
-
-			// dispatch for all the pixels
-			vkCmdDispatch( cmd, globalData.numRays / 64, 1, 1 );
-
-			VkBufferMemoryBarrier2 bufferBarrier {
-				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-
-				.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-
-				.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-				.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-
-				.buffer = rayBuffer.buffer,
-				.offset = 0,
-				.size = VK_WHOLE_SIZE,
-			};
-
-			VkDependencyInfo barrierDependency {
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-				.bufferMemoryBarrierCount = 1,
-				.pBufferMemoryBarriers = &bufferBarrier,
-			};
-
-			vkCmdPipelineBarrier2( cmd, &barrierDependency );
-		};
-	}
-
-	{ // Line Rasterization
-		{ // descriptor layout
-			// we're eventually going to just want 32-bit uint IDs out of this process, but for now I think color makes sense...
-				// we of course also need depth for the z-testing.
-
-			// Color and Depth Attachments are part of the rendering state, and are not specified as part of the descriptor set or descriptor set layout
-
-			DescriptorLayoutBuilder builder;
-			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
-			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // Ray state buffer
-			lineRaster.descriptorSetLayout = builder.build( device,  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT );
-			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) lineRaster.descriptorSetLayout, "Line Raster Descriptor Set Layout" );
-		}
-
-		{ // pipeline layout + pipeline build
-			VkPushConstantRange pushConstant{};
-			pushConstant.offset = 0;
-			pushConstant.size = sizeof( PushConstants );
-			pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-			VkPipelineLayoutCreateInfo rasterLayout{};
-			rasterLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			rasterLayout.pNext = nullptr;
-			rasterLayout.pSetLayouts = &lineRaster.descriptorSetLayout;
-			rasterLayout.setLayoutCount = 1;
-			rasterLayout.pPushConstantRanges = &pushConstant;
-			rasterLayout.pushConstantRangeCount = 1;
-
-			VK_CHECK( vkCreatePipelineLayout( device, &rasterLayout, nullptr, &lineRaster.pipelineLayout ) );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) lineRaster.pipelineLayout, "Line Raster Pipeline Layout" );
-
-			VkShaderModule lineFragShader;
-			if ( !vkutil::load_shader_module( "../shaders/lineDraw.frag.glsl.spv", device, &lineFragShader ) ) {
-				fmt::print( "Error when building the Line Draw Fragment shader module\n" );
-			}
-			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) lineFragShader, "Line Fragment Shader Module" );
-
-			VkShaderModule lineVertexShader;
-			if ( !vkutil::load_shader_module( "../shaders/lineDraw.vert.glsl.spv", device, &lineVertexShader ) ) {
-				fmt::print( "Error when building the Line Draw Vertex shader module\n" );
-			}
-			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) lineVertexShader, "Line Vertex Shader Module" );
-
-			PipelineBuilder pipelineBuilder;
-			pipelineBuilder._pipelineLayout = lineRaster.pipelineLayout;
-			pipelineBuilder.set_shaders( lineVertexShader, lineFragShader );
-			pipelineBuilder.set_input_topology( VK_PRIMITIVE_TOPOLOGY_LINE_LIST );
-			pipelineBuilder.set_polygon_mode( VK_POLYGON_MODE_FILL );
-			pipelineBuilder.set_cull_mode( VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE );
-			pipelineBuilder.set_multisampling_none();
-			pipelineBuilder.enable_blending_additive();
-			pipelineBuilder.disable_depthtest();
-			pipelineBuilder.set_color_attachment_format( lineColorAttachment.imageFormat );
-			lineRaster.pipeline = pipelineBuilder.build_pipeline( device );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) lineRaster.pipeline, "Line Raster Pipeline" );
-
-			// cleanup
-			vkDestroyShaderModule( device, lineFragShader, nullptr );
-			vkDestroyShaderModule( device, lineVertexShader, nullptr );
-
-			mainDeletionQueue.push_function( [ & ] ()  {
-				vkDestroyDescriptorSetLayout( device, lineRaster.descriptorSetLayout, nullptr );
-				vkDestroyPipeline( device, lineRaster.pipeline, nullptr );
-				vkDestroyPipelineLayout( device, lineRaster.pipelineLayout, nullptr );
-			});
-		}
-
-		lineRaster.invoke = [ & ] ( VkCommandBuffer cmd ) {
-			// additive raster for the agent locations
-			VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-			VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info( lineColorAttachment.imageView, &clearColor, VK_IMAGE_LAYOUT_GENERAL );
-			VkRenderingInfo renderInfo = vkinit::rendering_info( ImageBufferResolution, &colorAttachment, nullptr );
-
-			vkCmdBeginRendering( cmd, &renderInfo );
-			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lineRaster.pipeline );
-
-			// dynamic descriptor allocation
-			lineRaster.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, lineRaster.descriptorSetLayout );
-			{
-				DescriptorWriter writer;
-				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, rayBuffer.buffer, globalData.numBounces * globalData.numRays * sizeof( raySegment ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
-				writer.update_set( device, lineRaster.descriptorSet );
-			}
-
-			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lineRaster.pipelineLayout, 0, 1, &lineRaster.descriptorSet, 0, nullptr );
-
-			//set dynamic viewport and scissor
-			VkViewport viewport = {};
-			viewport.x = 0;
-			viewport.y = 0;
-			viewport.width = float( ImageBufferResolution.width * renderScale );
-			viewport.height = float( ImageBufferResolution.height * renderScale );
-			viewport.minDepth = 0.0f;
-			viewport.maxDepth = 1.0f;
-			vkCmdSetViewport( cmd, 0, 1, &viewport );
-
-			VkRect2D scissor = {};
-			scissor.offset.x = 0;
-			scissor.offset.y = 0;
-			scissor.extent.width = ImageBufferResolution.width;
-			scissor.extent.height = ImageBufferResolution.height;
-			vkCmdSetScissor( cmd, 0, 1, &scissor );
-
-			// draw all the agents as points
-			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  lineRaster.pipelineLayout, 0, 1, &lineRaster.descriptorSet, 0, nullptr );
-			vkCmdPushConstants( cmd, lineRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &lineRaster.pushConstants );
-
-			// launch a draw command to do the fullscreen triangle
-			vkCmdDraw( cmd, 2 * ( globalData.numRays * globalData.numBounces ), 1, 0, 0 );
-			vkCmdEndRendering( cmd );
-
-			VkImageMemoryBarrier2 barrierC {
-				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-
-				.srcStageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-				.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-
-				.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-
-				// now the blur has finished, we are using the filtered reads until the next agent raster
-				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
-
-				.image = lineColorAttachment.image,
-				.subresourceRange = {
-					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1
-				}
-			};
-
-			VkDependencyInfo barrierDependency {
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-				.imageMemoryBarrierCount = 1,
-				.pImageMemoryBarriers = &barrierC
-			};
-
-			vkCmdPipelineBarrier2( cmd, &barrierDependency );
-		};
-	}
-
-	{ // Accumulate
-		{ // descriptor layout
-			DescriptorLayoutBuilder builder;
-			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
-			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ); // draw image
-			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // XYZ Buffer
-			Accumulate.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
-			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) Accumulate.descriptorSetLayout, "Accumulate Descriptor Set Layout" );
-		}
-
-		{ // pipeline layout + compute pipeline
-			VkPushConstantRange pushConstant{};
-			pushConstant.offset = 0;
-			pushConstant.size = sizeof( PushConstants );
-			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-			VkPipelineLayoutCreateInfo computeLayout{};
-			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			computeLayout.pNext = nullptr;
-			computeLayout.pSetLayouts = &Accumulate.descriptorSetLayout;
-			computeLayout.setLayoutCount = 1;
-			computeLayout.pPushConstantRanges = &pushConstant;
-			computeLayout.pushConstantRangeCount = 1;
-
-			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &Accumulate.pipelineLayout ) );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) Accumulate.pipelineLayout, "Accumulate Pipeline Layout" );
-
-			VkShaderModule AccumulateShader;
-			if ( !vkutil::load_shader_module("../shaders/accumulate.comp.glsl.spv", device, &AccumulateShader ) ) {
-				fmt::print( "Error when building the Accumulate Compute Shader\n" );
-			}
-			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) AccumulateShader, "Accumulate Shader Module" );
-
-			VkPipelineShaderStageCreateInfo stageinfo{};
-			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-			stageinfo.pNext = nullptr;
-			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-			stageinfo.module = AccumulateShader;
-			stageinfo.pName = "main";
-
-			VkComputePipelineCreateInfo computePipelineCreateInfo{};
-			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-			computePipelineCreateInfo.pNext = nullptr;
-			computePipelineCreateInfo.layout = Accumulate.pipelineLayout;
-			computePipelineCreateInfo.stage = stageinfo;
-
-			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &Accumulate.pipeline ) );
-			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) Accumulate.pipeline, "Accumulate Compute Pipeline" );
-			vkDestroyShaderModule( device, AccumulateShader, nullptr );
-
-			// deletors for the pipeline layout + pipeline
-			mainDeletionQueue.push_function( [ & ] () {
-				vkDestroyDescriptorSetLayout( device, Accumulate.descriptorSetLayout, nullptr );
-				vkDestroyPipelineLayout( device, Accumulate.pipelineLayout, nullptr );
-				vkDestroyPipeline( device, Accumulate.pipeline, nullptr );
-			});
-		}
-
-		// invoke() lambda
-		Accumulate.invoke = [ & ]( VkCommandBuffer cmd ) {
-			Accumulate.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, Accumulate.descriptorSetLayout );
-			{
-				DescriptorWriter writer;
-				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_image( 1, lineColorAttachment.imageView, defaultSamplerLinear, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER );
-				writer.write_image( 2, XYZImage.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
-				writer.update_set( device, Accumulate.descriptorSet );
-			}
-
-			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Accumulate.pipeline );
-
-			// bind the descriptor set, as just recorded
-			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Accumulate.pipelineLayout, 0, 1, &Accumulate.descriptorSet, 0, nullptr );
-
-			// get a new wang RNG seed
-			Accumulate.pushConstants.wangSeed = genWangSeed();
-
-			// send the current value of the push constants
-			vkCmdPushConstants( cmd, Accumulate.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &Accumulate.pushConstants );
-
-			// and the actual compute dispatch for pixels - this is sized for the full buffer
-			vkCmdDispatch( cmd, ( ImageBufferResolution.width + 15 ) / 16, ( ImageBufferResolution.height + 15 ) / 16, 1 );
-
-			VkImageMemoryBarrier2 barrierC {
-				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-
-				.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-
-				.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-
-				// now the blur has finished, we are using the filtered reads until the next agent raster
-				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
-
-				.image = drawImage.image,
-				.subresourceRange = {
-					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1
-				}
-			};
-
-			VkDependencyInfo barrierDependency {
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-				.imageMemoryBarrierCount = 1,
-				.pImageMemoryBarriers = &barrierC
-			};
-
-			vkCmdPipelineBarrier2( cmd, &barrierDependency );
-		};
-	}
 
 	{ // Present
 		{ // descriptor layout
@@ -1191,7 +609,7 @@ void PrometheusInstance::initComputePasses () {
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
 				writer.write_image( 1, drawImage.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
-				writer.write_image( 2, XYZImage.imageView, defaultSamplerLinear, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER );
+				writer.write_image( 2, Accumulator.imageView, defaultSamplerLinear, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER );
 				writer.update_set( device, BufferPresent.descriptorSet );
 			}
 
@@ -1209,70 +627,6 @@ void PrometheusInstance::initComputePasses () {
 			// and the actual compute dispatch for the simulation agents
 			vkCmdDispatch( cmd, ( drawExtent.width + 15 ) / 16, ( drawExtent.height + 15 ) / 16, 1 );
 		};
-	}
-}
-
-void PrometheusInstance::lightManagerMaintenance () {
-	// three resources need to be kept up:
-		// spectral sampling IS
-		// light pick IS
-		// light parameters buffer
-
-	static bool firstTime = true;
-
-	static int lastSeenNumLights = 0;
-	uint8_t numLights = lightManager.lights.size() + 1;
-
-	// if we see a change in the light list, we need to rebuild
-	if ( lastSeenNumLights != numLights ) {
-		if ( !firstTime ) {
-			// delete the existing textures
-			destroyImage( PreviewAtlas );
-			destroyImage( SpectrumISImage );
-			destroyImage( PickISImage );
-		}
-		// create the new textures at current sizes
-		PreviewAtlas = createImage( { 554, 64u * numLights, 1 }, VK_FORMAT_R8G8B8A8_UNORM,  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
-		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) PreviewAtlas.image, "Preview Atlas" );
-
-		SpectrumISImage = createImage( { 1024, numLights, 1 }, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
-		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) SpectrumISImage.image, "Spectral IS Texture" );
-
-		PickISImage = createImage( { 256, 256, 1 }, VK_FORMAT_R8_UINT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
-		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) PickISImage.image, "Pick IS Texture" );
-
-		firstTime = false;
-
-		// we have memory allocated, now need to do the updates
-		lightManager.needsUpdate = true;
-		lastSeenNumLights = numLights;
-	}
-
-	if ( lightManager.needsUpdate ) {
-		// ensure that we have up-to-date data prepared
-		lightManager.Update();
-
-		// and send this prepared texture data to the GPU
-		updateImage( PreviewAtlas, lightManager.concatenatedPreviews.data(), 4 );	// data comes in as R8B8G8A8 (4 bytes)
-		updateImage( SpectrumISImage, lightManager.iCDFTexture.data(), 4 );			// data comes in as R32 (4 bytes)
-		updateImage( PickISImage, lightManager.pickTexture.data(), 1 );				// data comes in as R8 (1 byte)
-
-		// setup for ImGui to draw texture on the menus
-		textureID = ( ImTextureID ) ImGui_ImplVulkan_AddTexture(
-			defaultSamplerNearest,
-			PreviewAtlas.imageView,
-			VK_IMAGE_LAYOUT_GENERAL
-		);
-
-		// wipe buffers
-		globalData.reset = 1;
-	}
-
-	// and then we need to update the parameters buffer for the emitters
-	LightEmitterParameters* emitterParams = ( LightEmitterParameters * ) LightParametersBuffer.allocation->GetMappedData();
-	emitterParams[ 0 ] = lightManager.MouseLight->parameters;
-	for ( int i = 0; i < lightManager.lights.size(); i++ ) {
-		emitterParams[ i + 1 ] = lightManager.lights[ i ].parameters;
 	}
 }
 
@@ -1454,11 +808,12 @@ void PrometheusInstance::destroyImage ( const AllocatedImage& img ) {
 
 void PrometheusInstance::initDefaultData () {
 
-	YAML::Node config = YAML::LoadFile( "../src/presets.yaml" );
-	size_t numEntries = config.size();
-	for ( size_t i = 0; i < numEntries; i++ ) {
-		presets.push_back( config[ i ].as< uint32_t >() );
-	}
+// need to do engine startup config soon
+	// YAML::Node config = YAML::LoadFile( "../src/presets.yaml" );
+	// size_t numEntries = config.size();
+	// for ( size_t i = 0; i < numEntries; i++ ) {
+		// presets.push_back( config[ i ].as< uint32_t >() );
+	// }
 
 // TEXTURES
 	// 3 default textures, white, grey, black. 1 pixel each
@@ -1565,15 +920,18 @@ void PrometheusInstance::initImgui () {
 	});
 }
 
-void PrometheusInstance::initLights () {
-	// setting up some of the global resources used by the lights
-	lightManager.Initialize();
-	lightManager.brightnessScalar = &globalData.brightnessScalar;
+void PrometheusInstance::initPoints () {
+	// doing the allocation
+	static bool firstTime = true;
 
-	// AllocatedImage previewImage = createImage( { 450 + 104, 64, 1 }, VK_FORMAT_R8G8B8A8_SNORM, VK_IMAGE_USAGE_SAMPLED_BIT );
+	if ( firstTime ) {
 
-	// do the work to populate the textures initially
-	lightManagerMaintenance();
+	}
+
+	// updating point values
+	// point* uniformData = ( point* ) pointSSBO.allocation->GetMappedData();
+
+	firstTime = false;
 }
 
 //==============================================================================================
@@ -1620,8 +978,6 @@ void PrometheusInstance::createSwapchain ( uint32_t w, uint32_t h ) {
 	VkExtent3D drawImageExtent = {
 		windowExtent.width,
 		windowExtent.height,
-		// 64, // custom hacked in resolution
-		// 64,
 		1
 	};
 

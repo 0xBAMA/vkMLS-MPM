@@ -3,7 +3,7 @@
 #
 cmake_minimum_required ( VERSION 3.8 )
 
-project ( "VkForwardPT" )
+project ( "VkMLS-MPM" )
 
 # vulkan stuff
 find_package( Vulkan REQUIRED )

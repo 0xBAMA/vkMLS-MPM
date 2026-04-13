@@ -9,22 +9,16 @@ layout( push_constant ) uniform constants {
 // Global config etc data in a UBO
 layout( set = 0, binding = 0 ) uniform globalData {
 	// buffer resolutions:
-	uvec2 floatBufferResolution;
 	uvec2 presentBufferResolution;
-
 	vec2 mouseLoc;
-
-	int numRays;
-	int numBounces;
 
 	int frameNumber;
 	int reset;
-	int framesSinceReset;
 
 	float brightnessScalar;
 	float resolutionScalar;
 
-	// nsight layout: vec2u; vec2u; vec2; int; int; int; int; int; float; float;
+	// nsight layout: vec2u; vec2; int; int; float; float;
 } GlobalData;
 //=========================================================
 

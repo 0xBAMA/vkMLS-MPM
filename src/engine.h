@@ -12,6 +12,11 @@
 
 #include "lightManager.h"
 
+struct point {
+	glm::vec2 position { 0.0f };
+	glm::vec2 velocity { 0.0f };
+	// tbd
+};
 
 struct DeletionQueue {
 	std::deque< std::function< void() > > deletors;
@@ -49,17 +54,11 @@ struct frameData_t {
 
 // common configuration across all shaders
 struct GlobalData {
-	glm::uvec2 floatBufferResolution;
 	glm::uvec2 presentBufferResolution;
-
 	glm::vec2 mouseLoc;
-
-	int numRays{ 64 * 150 };
-	int numBounces{ 256 };
 
 	int frameNumber{ 0 };
 	int reset{ 0 };
-	int framesSinceReset{ 0 };
 
 	float brightnessScalar{ 1.0f };
 	float resolutionScalar{ 1.0f };
@@ -68,13 +67,6 @@ struct GlobalData {
 // smallest scope CPU->GPU passing of information
 struct PushConstants {
 	uint32_t wangSeed;
-};
-
-struct raySegment {
-	float wavelength;
-	float brightness;
-	glm::vec2 a;	// first point
-	glm::vec2 b;	// second point
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -113,47 +105,18 @@ inline uint32_t genWangSeed () {
 class PrometheusInstance {
 public:
 
-	bool showMenu = true;
-
-	char currentExportFilename[ 256 ]{ "filename" };
-
-	uint32_t lastPreset;
-	std::vector< uint32_t > presets;
-
 // data/storage resources
 	AllocatedBuffer GlobalUBO;
 	GlobalData globalData; // goes into the UBO
 
-	// the simulation buffer resolution
+	// the output buffer resolution
 	VkExtent2D ImageBufferResolution;
-	AllocatedImage XYZImage;
 
-	// rays
-	AllocatedBuffer rayBuffer;
-
-	// wrapping the compute passes which are involved
-	ComputeEffect Raytrace;
-	ComputeEffect Accumulate;
+	// preparing output for the swapchain
 	ComputeEffect BufferPresent;
+	AllocatedImage Accumulator;
 
-	// abusing the ComputeEffect struct for a raster pipeline
-	AllocatedImage lineColorAttachment;
-	ComputeEffect lineRaster;
-
-	// light manager
-	LightManager lightManager;
-
-	// Textures for the light scheme
-	AllocatedImage PreviewAtlas;	// keeps all the spectrum + xrite chip previews, imgui::Image can specify min and max UVs to show
-	AllocatedImage SpectrumISImage;	// keeps the iCDFs of the light emission spectra - this is indexed the same as the emitters, max 256
-	AllocatedImage PickISImage;		// keeps the uint8 indices of the lights. Normalized random sampling, nearest filter, to pick - presence is weighted by brightness
-		// 0 is mouse, 1-255 are custom user lights as configured in the menu -> this is a nice limit, for what we're doing here
-
-	// gathered up parameters from the list of lights
-	AllocatedBuffer LightParametersBuffer; // uses the same indexing as the pick importance sampling + spectrum importance sampling list
-
-	// main loop gather function, updates textures + buffer
-	void lightManagerMaintenance();
+	
 
 	// engine triggers
 	bool resizeRequest { false };
@@ -250,7 +213,7 @@ private:
 	void initComputePasses ();
 	void initImgui ();
 	void initResources ();
-	void initLights();
+	void initPoints ();
 
 	// main loop helpers
 	void drawImgui ( VkCommandBuffer cmd, VkImageView targetImageView );
