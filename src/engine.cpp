@@ -287,7 +287,7 @@ void PrometheusInstance::MainLoop () {
 			ImGui::NewFrame();
 
 			// some imgui UI to test
-			ImGui::ShowDemoWindow();
+			// ImGui::ShowDemoWindow();
 
 			// make imgui calculate internal draw structures
 			ImGui::Render();
@@ -550,16 +550,14 @@ void PrometheusInstance::initResources () {
 void PrometheusInstance::initComputePasses () {
 
 	// Simulation
+		// ClearGrid
+		// EstimateVolume
+		// PointToGrid
+		// UpdateGrid
+		// GridToPoint
 
-
-	{ // trying to setup the point sprites
-
+	{ // point raster
 		{ // descriptor layout
-			// we're eventually going to just want 32-bit uint IDs out of this process, but for now I think color makes sense...
-				// we of course also need depth for the z-testing.
-
-			// Color and Depth Attachments are part of the rendering state, and are not specified as part of the descriptor set or descriptor set layout
-
 			DescriptorLayoutBuilder builder;
 			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
 			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the SSBO with point locations
@@ -584,16 +582,16 @@ void PrometheusInstance::initComputePasses () {
 
 			VkShaderModule pointSpriteFragShader;
 			if ( !vkutil::load_shader_module( "../shaders/pointRaster.frag.glsl.spv", device, &pointSpriteFragShader ) ) {
-				fmt::print( "Error when building the Agent Raster fragment shader module\n" );
+				fmt::print( "Error when building the Point Raster fragment shader module\n" );
 			} else {
-				fmt::print( "Agent Raster fragment shader successfully loaded\n" );
+				fmt::print( "Point Raster fragment shader successfully loaded\n" );
 			}
 
 			VkShaderModule pointSpriteVertexShader;
 			if ( !vkutil::load_shader_module( "../shaders/pointRaster.vert.glsl.spv", device, &pointSpriteVertexShader ) ) {
-				fmt::print( "Error when building the Agent Raster vertex shader module\n" );
+				fmt::print( "Error when building the Point Raster vertex shader module\n" );
 			} else {
-				fmt::print( "Agent Raster vertex shader successfully loaded\n" );
+				fmt::print( "Point Raster vertex shader successfully loaded\n" );
 			}
 
 			PipelineBuilder pipelineBuilder;
