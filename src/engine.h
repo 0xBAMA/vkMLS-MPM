@@ -15,7 +15,14 @@
 struct point {
 	glm::vec2 position { 0.0f };
 	glm::vec2 velocity { 0.0f };
-	// tbd
+
+	glm::mat2 C;
+	glm::mat2 Vs;
+
+	float mass;
+	float v0;
+
+	glm::vec2 pad;
 };
 
 struct DeletionQueue {

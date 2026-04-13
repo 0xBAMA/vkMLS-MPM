@@ -9,6 +9,14 @@
 struct point {
 	vec2 position;
 	vec2 velocity;
+
+	mat2 C;
+	mat2 Vs;
+
+	float mass;
+	float v0;
+
+	vec2 pad;
 };
 
 layout( set = 0, binding = 1, std430 ) readonly buffer pointBuffer {
