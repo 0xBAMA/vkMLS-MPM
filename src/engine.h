@@ -63,7 +63,7 @@ struct frameData_t {
 struct GlobalData {
 	glm::uvec2 presentBufferResolution;
 	glm::uvec2 accumulatorResolution;
-	glm::vec2 mouseLoc;
+	glm::vec3 mouseLoc;
 
 	int frameNumber{ 0 };
 	int reset{ 0 };

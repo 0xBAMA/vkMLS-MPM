@@ -11,7 +11,7 @@ layout( set = 0, binding = 0 ) uniform globalData {
 	// buffer resolutions:
 	uvec2 presentBufferResolution;
 	uvec2 accumulatorResolution;
-	vec2 mouseLoc;
+	vec3 mouseLoc;
 
 	int frameNumber;
 	int reset;
