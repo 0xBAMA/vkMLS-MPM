@@ -1,0 +1,6 @@
+﻿out
+.vs
+bin/
+.idea
+*.spv
+build
