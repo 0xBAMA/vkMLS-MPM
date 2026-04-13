@@ -111,6 +111,42 @@ void PrometheusInstance::Init () {
 	isInitialized = true;
 }
 
+static inline VkImageMemoryBarrier2 makeImageBarrier ( VkImage img, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess ) {
+	return VkImageMemoryBarrier2 {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = srcStage,
+		.srcAccessMask = srcAccess,
+		.dstStageMask = dstStage,
+		.dstAccessMask = dstAccess,
+		.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = img,
+		.subresourceRange = {
+			VK_IMAGE_ASPECT_COLOR_BIT, 0,
+			VK_REMAINING_MIP_LEVELS,
+			0,
+			VK_REMAINING_ARRAY_LAYERS
+		}
+	};
+}
+
+static VkBufferMemoryBarrier2 makeBufferBarrier ( VkBuffer buf, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess ) {
+	return VkBufferMemoryBarrier2 {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+		.srcStageMask = srcStage,
+		.srcAccessMask = srcAccess,
+		.dstStageMask = dstStage,
+		.dstAccessMask = dstAccess,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.buffer = buf,
+		.offset = 0,
+		.size = VK_WHOLE_SIZE
+	};
+}
+
 //============================================================================================================================
 // Draw
 //============================================================================================================================
