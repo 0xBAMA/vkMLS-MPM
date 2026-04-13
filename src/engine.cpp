@@ -169,6 +169,16 @@ void PrometheusInstance::Draw () {
 	vkutil::transition_image( cmd, Accumulator.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 
+	// invoke ClearGrid
+
+	// invoke PointToGrid
+
+	// invoke GridUpdate
+
+	// invoke GridToPoint
+
+	// invoke PointRaster
+	PointRaster.invoke( cmd );
 
 	// compute shader to accumulate the raster result + put the resolved final image into the drawImage...
 	BufferPresent.invoke( cmd );
@@ -523,7 +533,7 @@ void PrometheusInstance::initResources () {
 	// create the accumulator texture
 	{
 		VkExtent3D bufferExtent = { globalData.accumulatorResolution.x, globalData.accumulatorResolution.y, 1 };
-		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) Accumulator.image, "Accumulator" );
 	}
 
@@ -538,6 +548,152 @@ void PrometheusInstance::initResources () {
 }
 
 void PrometheusInstance::initComputePasses () {
+
+	// Simulation
+
+
+	{ // trying to setup the point sprites
+
+		{ // descriptor layout
+			// we're eventually going to just want 32-bit uint IDs out of this process, but for now I think color makes sense...
+				// we of course also need depth for the z-testing.
+
+			// Color and Depth Attachments are part of the rendering state, and are not specified as part of the descriptor set or descriptor set layout
+
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the SSBO with point locations
+			PointRaster.descriptorSetLayout = builder.build( device,  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT );
+		}
+
+		{ // pipeline layout + pipeline build
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo rasterLayout{};
+			rasterLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			rasterLayout.pNext = nullptr;
+			rasterLayout.pSetLayouts = &PointRaster.descriptorSetLayout;
+			rasterLayout.setLayoutCount = 1;
+			rasterLayout.pPushConstantRanges = &pushConstant;
+			rasterLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &rasterLayout, nullptr, &PointRaster.pipelineLayout ) );
+
+			VkShaderModule pointSpriteFragShader;
+			if ( !vkutil::load_shader_module( "../shaders/pointRaster.frag.glsl.spv", device, &pointSpriteFragShader ) ) {
+				fmt::print( "Error when building the Agent Raster fragment shader module\n" );
+			} else {
+				fmt::print( "Agent Raster fragment shader successfully loaded\n" );
+			}
+
+			VkShaderModule pointSpriteVertexShader;
+			if ( !vkutil::load_shader_module( "../shaders/pointRaster.vert.glsl.spv", device, &pointSpriteVertexShader ) ) {
+				fmt::print( "Error when building the Agent Raster vertex shader module\n" );
+			} else {
+				fmt::print( "Agent Raster vertex shader successfully loaded\n" );
+			}
+
+			PipelineBuilder pipelineBuilder;
+			pipelineBuilder._pipelineLayout = PointRaster.pipelineLayout;
+			pipelineBuilder.set_shaders( pointSpriteVertexShader, pointSpriteFragShader );
+			pipelineBuilder.set_input_topology( VK_PRIMITIVE_TOPOLOGY_POINT_LIST );
+			pipelineBuilder.set_polygon_mode( VK_POLYGON_MODE_FILL );
+			pipelineBuilder.set_cull_mode( VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE );
+			pipelineBuilder.set_multisampling_none();
+			pipelineBuilder.disable_blending();
+			pipelineBuilder.disable_depthtest();
+			pipelineBuilder.set_color_attachment_format( Accumulator.imageFormat );
+			PointRaster.pipeline = pipelineBuilder.build_pipeline( device );
+
+			// cleanup
+			vkDestroyShaderModule( device, pointSpriteFragShader, nullptr );
+			vkDestroyShaderModule( device, pointSpriteVertexShader, nullptr );
+
+			mainDeletionQueue.push_function( [ & ] ()  {
+				vkDestroyDescriptorSetLayout( device, PointRaster.descriptorSetLayout, nullptr );
+				vkDestroyPipeline( device, PointRaster.pipeline, nullptr );
+				vkDestroyPipelineLayout( device, PointRaster.pipelineLayout, nullptr );
+			});
+		}
+
+		PointRaster.invoke = [ & ] ( VkCommandBuffer cmd ) {
+			// additive raster for the agent locations
+			VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info( Accumulator.imageView, &clearColor, VK_IMAGE_LAYOUT_GENERAL );
+			VkRenderingInfo renderInfo = vkinit::rendering_info( ImageBufferResolution, &colorAttachment, nullptr );
+
+			vkCmdBeginRendering( cmd, &renderInfo );
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PointRaster.pipeline );
+
+			// dynamic descriptor allocation, to bind a texture
+			PointRaster.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, PointRaster.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.update_set( device, PointRaster.descriptorSet );
+			}
+
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
+
+			//set dynamic viewport and scissor
+			VkViewport viewport = {};
+			viewport.x = 0;
+			viewport.y = 0;
+			viewport.width = float( ImageBufferResolution.width );
+			viewport.height = float( ImageBufferResolution.height );
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			vkCmdSetViewport( cmd, 0, 1, &viewport );
+
+			VkRect2D scissor = {};
+			scissor.offset.x = 0;
+			scissor.offset.y = 0;
+			scissor.extent.width = ImageBufferResolution.width;
+			scissor.extent.height = ImageBufferResolution.height;
+			vkCmdSetScissor( cmd, 0, 1, &scissor );
+
+			// draw all the agents as points
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
+			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
+
+			// launch a draw command to do the fullscreen triangle
+			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
+			vkCmdEndRendering( cmd );
+
+			VkImageMemoryBarrier2 barrierC {
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+
+				.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+
+				.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+
+				// now the blur has finished, we are using the filtered reads until the next agent raster
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+
+				.image = Accumulator.image,
+				.subresourceRange = {
+					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1
+				}
+			};
+
+			VkImageMemoryBarrier2 barriers[] = { barrierC };
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 1,
+				.pImageMemoryBarriers = barriers
+			};
+
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
 
 	{ // Present
 		{ // descriptor layout
@@ -920,6 +1076,9 @@ void PrometheusInstance::initPoints () {
 	static bool firstTime = true;
 
 	if ( firstTime ) {
+		firstTime = false;
+
+		// create the buffer
 		pointBuffer = createBuffer( sizeof( point ) * numPoints, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU );
 		SetDebugName( VK_OBJECT_TYPE_BUFFER, ( uint64_t ) pointBuffer.buffer, "Point Buffer" );
 
@@ -936,13 +1095,18 @@ void PrometheusInstance::initPoints () {
 		for ( int y = 0; y < 480; y++ ) {
 
 			const int idx = x + 640 * y;
-			data[ idx ].position = centerpoint + vec2( x, y ) - vec2( 320, 240 );
+			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 3.0f;
 			data[ idx ].velocity = vec2( 0.0f );
+
+			// more init
 
 		}
 	}
 
-	firstTime = false;
+	// invoke PointToGrid
+
+	// invoke EstimateVolume
+
 }
 
 //==============================================================================================
