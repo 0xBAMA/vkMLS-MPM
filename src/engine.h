@@ -122,14 +122,13 @@ public:
 	AllocatedBuffer pointBuffer;
 
 	// and images... screen res
-	VkExtent2D SimResolution;
+	VkExtent3D SimResolution;
 	AllocatedImage velocityXAtomic;
 	AllocatedImage velocityYAtomic;
 	AllocatedImage massAtomic;
 
 	// for simulation
 	ComputeEffect EstimateVolume;
-	ComputeEffect ClearGrid;
 	ComputeEffect PointToGrid;
 	ComputeEffect UpdateGrid;
 	ComputeEffect GridToPoint;

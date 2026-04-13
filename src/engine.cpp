@@ -621,12 +621,110 @@ void PrometheusInstance::initResources () {
 
 void PrometheusInstance::initComputePasses () {
 
-	// Simulation
-		// ClearGrid
-		// EstimateVolume
-		// PointToGrid
-		// UpdateGrid
-		// GridToPoint
+// Simulation
+	{ // Estimate Volume - runs per point
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			EstimateVolume.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) EstimateVolume.descriptorSetLayout, "Volume Estimate Descriptor Set Layout" );
+		}
+
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &EstimateVolume.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &EstimateVolume.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) EstimateVolume.pipelineLayout, "Volume Estimate Pipeline Layout" );
+
+			VkShaderModule EstimateVolumeShader;
+			if ( !vkutil::load_shader_module("../shaders/estimateVolume.comp.glsl.spv", device, &EstimateVolumeShader ) ) {
+				fmt::print( "Error when building the Volume Estimate Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) EstimateVolumeShader, "Volume Estimate Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = EstimateVolumeShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = EstimateVolume.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &EstimateVolume.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) EstimateVolume.pipeline, "Volume Estimate Compute Pipeline" );
+			vkDestroyShaderModule( device, EstimateVolumeShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, EstimateVolume.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, EstimateVolume.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, EstimateVolume.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		EstimateVolume.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			EstimateVolume.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, EstimateVolume.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, EstimateVolume.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, EstimateVolume.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, EstimateVolume.pipelineLayout, 0, 1, &EstimateVolume.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			EstimateVolume.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, EstimateVolume.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &EstimateVolume.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
+
+			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT  );
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.bufferMemoryBarrierCount = 1,
+				.pBufferMemoryBarriers = &barrier,
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
+		// PointToGrid - runs per point
+
+		// UpdateGrid - runs per grid cell
+
+		// GridToPoint - runs per point
 
 	{ // point raster
 		{ // descriptor layout
@@ -1168,15 +1266,10 @@ void PrometheusInstance::initPoints () {
 			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 3.0f;
 			data[ idx ].velocity = vec2( 0.0f );
 
-			// more init
+			// more init...
 
 		}
 	}
-
-	// invoke PointToGrid
-
-	// invoke EstimateVolume
-
 }
 
 //==============================================================================================
