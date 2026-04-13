@@ -88,6 +88,7 @@ void PrometheusInstance::Init () {
 	// ImageBufferResolution.height = windowExtent.height = 3 * viewRect.h / 4;
 	globalData.accumulatorResolution.x = SimResolution.width = ImageBufferResolution.width = windowExtent.width = viewRect.w;
 	globalData.accumulatorResolution.y = SimResolution.height = ImageBufferResolution.height = windowExtent.height = viewRect.h;
+	SimResolution.depth = 1;
 
 	window = SDL_CreateWindow(
 		"Prometheus",
@@ -535,6 +536,16 @@ void PrometheusInstance::initResources () {
 		VkExtent3D bufferExtent = { globalData.accumulatorResolution.x, globalData.accumulatorResolution.y, 1 };
 		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) Accumulator.image, "Accumulator" );
+	}
+
+	{
+		// buffers used in particle-to-grid
+		velocityXAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) velocityXAtomic.image, "X Velocity Accumulator" );
+		velocityYAtomic	= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) velocityYAtomic.image, "Y Velocity Accumulator" );
+		massAtomic		= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) massAtomic.image, "Mass Accumulator" );
 	}
 
 	// make sure to clean up at the end
