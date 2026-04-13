@@ -32,13 +32,24 @@ void main () {
 	ivec2 size = ivec2( imageSize( massAtomic ).xy );
 	// bounds checking
 	if ( all( lessThan( loc, size ) ) ) {
-
 		// normalization for the momentum accumulated on the grid
 		// also apply forces like gravity ( mouse repulsion )
-			// should the new quantities be written to new images? floating point/filtered...
+		// should the new quantities be written to new images? floating point/filtered...
+		int mass = imageLoad( massAtomic, loc ).r;
+		if ( mass != 0 ) { // there has been some write to this cell
+			// normalizing by dividing by the mass
+			int vX = imageLoad( velocityXAtomic, loc ).r;
+			int vY = imageLoad( velocityYAtomic, loc ).r;
+			vec2 v = vec2( vX, vY ) / GlobalData.fixedPointScalar;
+			v /= ( float( mass ) / GlobalData.fixedPointScalar );
 
-		// imageStore( velocityXAtomic, loc, ivec4( 0 ) );
-		// imageStore( velocityYAtomic, loc, ivec4( 0 ) );
-		// imageStore( massAtomic, loc, ivec4( 0 ) );
+			// "slip" condition at the boundaries
+			if ( loc.x < 2 || loc.x > ( size.x - 3 ) ) v.x = 0.0f;
+			if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
+
+			// storing back fixed point value of V
+			imageStore( velocityXAtomic, loc, ivec4( v.x * GlobalData.fixedPointScalar ) );
+			imageStore( velocityYAtomic, loc, ivec4( v.y * GlobalData.fixedPointScalar ) );
+		}
 	}
 }

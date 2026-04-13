@@ -13,16 +13,16 @@
 #include "lightManager.h"
 
 struct point {
-	glm::vec2 position { 0.0f };
-	glm::vec2 velocity { 0.0f };
+	glm::vec2 position{ 0.0f };
+	glm::vec2 velocity{ 0.0f };
 
-	glm::mat2 C;
-	glm::mat2 Vs;
+	glm::mat2 C{ 0.0f };
+	glm::mat2 Fs{ 1.0f };
 
-	float mass;
-	float v0;
+	float mass { 1.0f };
+	float v0 { 0.0f };
 
-	glm::vec2 pad;
+	vec2 pad;
 };
 
 struct DeletionQueue {
@@ -72,6 +72,13 @@ struct GlobalData {
 	float resolutionScalar{ 1.0f };
 
 	float gravityScalar{ 1.0f };
+	float fixedPointScalar{ 1000.0f };
+
+	float dt{ 0.1f };
+
+	// Lamé parameters for stress-strain relationship
+	float elasticLambda = 10.0f;
+	float elasticMu = 20.0f;
 };
 
 // smallest scope CPU->GPU passing of information

@@ -20,6 +20,13 @@ layout( set = 0, binding = 0 ) uniform globalData {
 	float resolutionScalar;
 
 	float gravityScalar;
+	float fixedPointScalar;
+
+	float dT;
+
+	// Lamé parameters for stress-strain relationship
+	float elasticLambda;
+	float elasticMu;
 
 	// nsight layout: vec2u; vec2; int; int; float; float;
 } GlobalData;

@@ -1565,10 +1565,11 @@ void PrometheusInstance::initPoints () {
 		for ( int y = 0; y < 480; y++ ) {
 
 			const int idx = x + 640 * y;
-			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 3.0f;
+			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 1.0f;
 			data[ idx ].velocity = vec2( 0.0f );
-
-			// more init...
+			data[ idx ].C = glm::mat2( 0.0f );
+			data[ idx ].Fs = glm::mat2( 1.0f );
+			data[ idx ].mass = 1.0f;
 
 		}
 	}
