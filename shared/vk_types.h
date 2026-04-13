@@ -17,10 +17,11 @@
 #include <vk_mem_alloc.h>
 
 #include <fmt/core.h>
-
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_SWIZZLE
+#include <glm/glm.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
-//< intro 
 
 // we will add our main reusable types here
 struct AllocatedImage {
