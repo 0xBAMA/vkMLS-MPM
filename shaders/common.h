@@ -10,6 +10,7 @@ layout( push_constant ) uniform constants {
 layout( set = 0, binding = 0 ) uniform globalData {
 	// buffer resolutions:
 	uvec2 presentBufferResolution;
+	uvec2 accumulatorResolution;
 	vec2 mouseLoc;
 
 	int frameNumber;

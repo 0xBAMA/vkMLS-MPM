@@ -55,6 +55,7 @@ struct frameData_t {
 // common configuration across all shaders
 struct GlobalData {
 	glm::uvec2 presentBufferResolution;
+	glm::uvec2 accumulatorResolution;
 	glm::vec2 mouseLoc;
 
 	int frameNumber{ 0 };
@@ -116,7 +117,25 @@ public:
 	ComputeEffect BufferPresent;
 	AllocatedImage Accumulator;
 
-	
+	// data storage
+	uint32_t numPoints{ 640 * 480 };
+	AllocatedBuffer pointBuffer;
+
+	// and images... screen res
+	VkExtent2D SimResolution;
+	AllocatedImage velocityXAtomic;
+	AllocatedImage velocityYAtomic;
+	AllocatedImage massAtomic;
+
+	// for simulation
+	ComputeEffect EstimateVolume;
+	ComputeEffect ClearGrid;
+	ComputeEffect PointToGrid;
+	ComputeEffect UpdateGrid;
+	ComputeEffect GridToPoint;
+
+	// for rendering
+	ComputeEffect PointRaster;
 
 	// engine triggers
 	bool resizeRequest { false };
@@ -168,7 +187,6 @@ public:
 	VkCommandBuffer immediateCommandBuffer;
 	VkCommandPool immediateCommandPool;
 	void immediateSubmit( std::function< void( VkCommandBuffer cmd ) > && function );
-
 	DescriptorAllocatorGrowable globalDescriptorAllocator;
 
 	VkDescriptorSet drawImageDescriptors;

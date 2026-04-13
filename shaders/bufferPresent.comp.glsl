@@ -42,10 +42,9 @@ vec3 TonemapUchimura2 ( vec3 v ) {
 
 void main () {
 	// Computing a UV for the texture sampling operation
-	vec2 loc = ( gl_GlobalInvocationID.xy + vec2( 0.5f ) ) / GlobalData.floatBufferResolution.xy * ( vec2( GlobalData.floatBufferResolution ) / vec2( GlobalData.presentBufferResolution ) );
+	vec2 loc = ( gl_GlobalInvocationID.xy + vec2( 0.5f ) ) / GlobalData.accumulatorResolution.xy * ( vec2( GlobalData.accumulatorResolution ) / vec2( GlobalData.presentBufferResolution ) );
 
-	// frames is directly proportional to the number of rays that have run, so we have a good normalization term
-	vec3 color = GlobalData.brightnessScalar * texture( state, loc ).xyz / vec3( GlobalData.framesSinceReset * 35.0f );
+	vec3 color = GlobalData.brightnessScalar * texture( state, loc ).rgb;
 
 	// Sample the image and store the result
 	imageStore( image, ivec2( gl_GlobalInvocationID.xy ), vec4( TonemapUchimura2( color ), 1.0f ) );

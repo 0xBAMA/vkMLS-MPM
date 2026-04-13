@@ -86,8 +86,8 @@ void PrometheusInstance::Init () {
 	// accumulator image is going to be 1:1 with the swapchain image
 	// ImageBufferResolution.width = windowExtent.width = 3 * viewRect.w / 4;
 	// ImageBufferResolution.height = windowExtent.height = 3 * viewRect.h / 4;
-	ImageBufferResolution.width = windowExtent.width = viewRect.w;
-	ImageBufferResolution.height = windowExtent.height = viewRect.h;
+	globalData.accumulatorResolution.x = SimResolution.width = ImageBufferResolution.width = windowExtent.width = viewRect.w;
+	globalData.accumulatorResolution.y = SimResolution.height = ImageBufferResolution.height = windowExtent.height = viewRect.h;
 
 	window = SDL_CreateWindow(
 		"Prometheus",
@@ -231,7 +231,6 @@ void PrometheusInstance::MainLoop () {
 	SDL_Event e;
 
 	bool quit = false;
-
 	while ( !quit ) {
 		// event handling loop
 		while ( SDL_PollEvent( &e ) ) {
@@ -249,10 +248,6 @@ void PrometheusInstance::MainLoop () {
 			const float amount = shift ? 0.1f : 0.01f;
 
 			const bool* kb = SDL_GetKeyboardState( NULL );
-			// if ( kb[ SDL_SCANCODE_RIGHT ] || kb[ SDL_SCANCODE_D ] ) {
-				// globalData.rotation = glm::rotate( globalData.rotation, amount, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-				// globalData.reset = 1;
-			// }
 			if ( kb[ SDL_SCANCODE_R ] ) {
 				globalData.reset = true;
 			}
@@ -282,7 +277,7 @@ void PrometheusInstance::MainLoop () {
 			ImGui::NewFrame();
 
 			// some imgui UI to test
-			// ImGui::ShowDemoWindow();
+			ImGui::ShowDemoWindow();
 
 			// make imgui calculate internal draw structures
 			ImGui::Render();
@@ -527,7 +522,7 @@ void PrometheusInstance::initResources () {
 
 	// create the accumulator texture
 	{
-		VkExtent3D bufferExtent = { ImageBufferResolution.width, ImageBufferResolution.height, 1 };
+		VkExtent3D bufferExtent = { globalData.accumulatorResolution.x, globalData.accumulatorResolution.y, 1 };
 		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) Accumulator.image, "Accumulator" );
 	}
@@ -911,7 +906,7 @@ void PrometheusInstance::initImgui () {
 	ImGui_ImplVulkan_Init( &init_info );
 
 	// add the destroy the imgui created structures
-	mainDeletionQueue.push_function( [ = ] ()  {
+	mainDeletionQueue.push_function( [ = ] () {
 		ImGui_ImplVulkan_Shutdown();
 		vkDestroyDescriptorPool( device, imguiPool, nullptr );
 
@@ -925,11 +920,27 @@ void PrometheusInstance::initPoints () {
 	static bool firstTime = true;
 
 	if ( firstTime ) {
+		pointBuffer = createBuffer( sizeof( point ) * numPoints, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU );
+		SetDebugName( VK_OBJECT_TYPE_BUFFER, ( uint64_t ) pointBuffer.buffer, "Point Buffer" );
 
+		mainDeletionQueue.push_function( [ = ] () {
+			destroyBuffer( pointBuffer );
+		});
 	}
 
 	// updating point values
-	// point* uniformData = ( point* ) pointSSBO.allocation->GetMappedData();
+	point* data = ( point* ) pointBuffer.allocation->GetMappedData();
+	const vec2 centerpoint = vec2( SimResolution.width, SimResolution.height ) / 2.0f;
+
+	for ( int x = 0; x < 640; x++ ) {
+		for ( int y = 0; y < 480; y++ ) {
+
+			const int idx = x + 640 * y;
+			data[ idx ].position = centerpoint + vec2( x, y ) - vec2( 320, 240 );
+			data[ idx ].velocity = vec2( 0.0f );
+
+		}
+	}
 
 	firstTime = false;
 }
