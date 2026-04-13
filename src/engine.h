@@ -71,8 +71,8 @@ struct GlobalData {
 	float brightnessScalar{ 1.0f };
 	float resolutionScalar{ 1.0f };
 
-	float gravityScalar{ 1.0f };
-	float fixedPointScalar{ 1000.0f };
+	float gravityScalar{ 0.3f };
+	float fixedPointScalar{ 10000.0f };
 
 	float dt{ 0.1f };
 
@@ -142,6 +142,7 @@ public:
 	AllocatedImage velocityXAtomic;
 	AllocatedImage velocityYAtomic;
 	AllocatedImage massAtomic;
+	AllocatedImage resolvedAtomics;
 
 	// for simulation
 	ComputeEffect EstimateVolume;

@@ -203,6 +203,7 @@ void PrometheusInstance::Draw () {
 	vkutil::transition_image( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, velocityYAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 	vkutil::transition_image( cmd, massAtomic.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
+	vkutil::transition_image( cmd, resolvedAtomics.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL );
 
 	if ( globalData.reset != 0 ) {
 		globalData.reset = 0;
@@ -224,6 +225,8 @@ void PrometheusInstance::Draw () {
 		};
 		VkClearColorValue clearColor = { 0, 0, 0, 0 };
 		vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
+		vkCmdClearColorImage( cmd, velocityYAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
+		vkCmdClearColorImage( cmd, massAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
 		VkImageMemoryBarrier2 barriers[ 3 ] = {
 			makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
 			makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
@@ -323,6 +326,7 @@ void PrometheusInstance::MainLoop () {
 			const bool* kb = SDL_GetKeyboardState( NULL );
 			if ( kb[ SDL_SCANCODE_R ] ) {
 				globalData.reset = true;
+				initPoints();
 			}
 
 			if ( kb[ SDL_SCANCODE_T ] && shift ) {
@@ -331,12 +335,6 @@ void PrometheusInstance::MainLoop () {
 
 			//send SDL event to imgui for handling
 			ImGui_ImplSDL3_ProcessEvent( &e );
-		}
-
-		static glm::vec2 lastMousePos = glm::vec2( 0.0f );
-		if ( distance( lastMousePos, globalData.mouseLoc ) > 8.0f ) {
-			globalData.reset = true;
-			lastMousePos = globalData.mouseLoc;
 		}
 
 		// handling minimized application
@@ -596,7 +594,7 @@ void PrometheusInstance::initResources () {
 	// create the accumulator texture
 	{
 		VkExtent3D bufferExtent = { globalData.accumulatorResolution.x, globalData.accumulatorResolution.y, 1 };
-		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT );
+		Accumulator = createImage( bufferExtent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) Accumulator.image, "Accumulator" );
 	}
 
@@ -608,6 +606,8 @@ void PrometheusInstance::initResources () {
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) velocityYAtomic.image, "Y Velocity Accumulator" );
 		massAtomic		= createImage( SimResolution, VK_FORMAT_R32_SINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
 		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) massAtomic.image, "Mass Accumulator" );
+		resolvedAtomics	= createImage( SimResolution, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT );
+		SetDebugName( VK_OBJECT_TYPE_IMAGE, ( uint64_t ) resolvedAtomics.image, "Atomic Resolve Texture" );
 	}
 
 	// make sure to clean up at the end
@@ -620,6 +620,7 @@ void PrometheusInstance::initResources () {
 		destroyImage( velocityXAtomic );
 		destroyImage( velocityYAtomic );
 		destroyImage( massAtomic );
+		destroyImage( resolvedAtomics );
 	});
 }
 
@@ -835,6 +836,7 @@ void PrometheusInstance::initComputePasses () {
 			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
 			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 			UpdateGrid.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
 			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) UpdateGrid.descriptorSetLayout, "Update Grid Descriptor Set Layout" );
 		}
@@ -872,7 +874,7 @@ void PrometheusInstance::initComputePasses () {
 			VkComputePipelineCreateInfo computePipelineCreateInfo{};
 			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
 			computePipelineCreateInfo.pNext = nullptr;
-			computePipelineCreateInfo.layout = PointToGrid.pipelineLayout;
+			computePipelineCreateInfo.layout = UpdateGrid.pipelineLayout;
 			computePipelineCreateInfo.stage = stageinfo;
 
 			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &UpdateGrid.pipeline ) );
@@ -898,6 +900,7 @@ void PrometheusInstance::initComputePasses () {
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 5, resolvedAtomics.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.update_set( device, UpdateGrid.descriptorSet );
 			}
 
@@ -938,6 +941,7 @@ void PrometheusInstance::initComputePasses () {
 			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
 			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 			GridToPoint.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
 			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) GridToPoint.descriptorSetLayout, "Grid To Point Descriptor Set Layout" );
 		}
@@ -1001,6 +1005,7 @@ void PrometheusInstance::initComputePasses () {
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 5, resolvedAtomics.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.update_set( device, GridToPoint.descriptorSet );
 			}
 
@@ -1565,8 +1570,10 @@ void PrometheusInstance::initPoints () {
 		for ( int y = 0; y < 480; y++ ) {
 
 			const int idx = x + 640 * y;
-			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 1.0f;
-			data[ idx ].velocity = vec2( 0.0f );
+			data[ idx ] = point();
+
+			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 1.5f;
+			data[ idx ].velocity = vec2( 4.0f, 10.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
 			data[ idx ].mass = 1.0f;
