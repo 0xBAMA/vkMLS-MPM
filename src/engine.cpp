@@ -321,9 +321,6 @@ void PrometheusInstance::MainLoop () {
 			if ( kb[ SDL_SCANCODE_T ] && shift ) {
 				screenshot();
 			}
-
-			//send SDL event to imgui for handling
-			ImGui_ImplSDL3_ProcessEvent( &e );
 		}
 
 		// handling minimized application
@@ -1021,7 +1018,7 @@ void PrometheusInstance::initComputePasses () {
 			// dispatch for all the pixels
 			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
 
-			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
+			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
 			VkDependencyInfo barrierDependency {
 				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 				.bufferMemoryBarrierCount = 1,
@@ -1109,8 +1106,6 @@ void PrometheusInstance::initComputePasses () {
 				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.update_set( device, PointRaster.descriptorSet );
 			}
-
-			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
 
 			//set dynamic viewport and scissor
 			VkViewport viewport = {};
