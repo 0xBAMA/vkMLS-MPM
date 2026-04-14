@@ -327,6 +327,15 @@ void PrometheusInstance::MainLoop () {
 			// some imgui UI to test
 			// ImGui::ShowDemoWindow();
 
+			if ( ImGui::Begin( "Controls" ) ) {
+				ImGui::SliderFloat( "Elastic Mu", &globalData.elasticMu, 0.001f, 40.0f );
+				ImGui::SliderFloat( "Elastic Lambda", &globalData.elasticLambda, 0.001f, 40.0f );
+				ImGui::SliderFloat( "Mouse Size", &globalData.mouseSize, 0.001f, 100.0f );
+				ImGui::SliderFloat( "Mouse Force", &globalData.mouseForceScalar, 0.01f, 2.0f );
+				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.1f, 0.1f );
+				ImGui::End();
+			}
+
 			// make imgui calculate internal draw structures
 			ImGui::Render();
 

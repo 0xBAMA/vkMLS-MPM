@@ -3,6 +3,8 @@
 layout( push_constant ) uniform constants {
 // RNG seeding from the CPU
 	uint wangSeed;
+
+	float pointScale;
 } PushConstants;
 
 //=========================================================
@@ -28,7 +30,10 @@ layout( set = 0, binding = 0 ) uniform globalData {
 	float elasticLambda;
 	float elasticMu;
 
-	// nsight layout: vec2u; vec2; int; int; float; float;
+	float mouseSize;
+	float mouseForceScalar;
+
+	// nsight layout: vec2u; vec2; int; int; float; float; ...
 } GlobalData;
 //=========================================================
 
