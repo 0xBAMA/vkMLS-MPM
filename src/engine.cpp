@@ -304,16 +304,16 @@ void PrometheusInstance::MainLoop () {
 		while ( SDL_PollEvent( &e ) ) {
 			ImGui_ImplSDL3_ProcessEvent( &e );
 
+			const bool shift = SDL_GetModState() & SDL_KMOD_LSHIFT;
+			const float amount = shift ? 0.1f : 0.01f;
+
 			if ( e.type == SDL_EVENT_QUIT ) {
 				quit = true;
 			}
 
-			if ( e.type == SDL_EVENT_KEY_UP && e.key.scancode == SDL_SCANCODE_ESCAPE ) {
+			if ( e.type == SDL_EVENT_KEY_UP && e.key.scancode == SDL_SCANCODE_ESCAPE && shift ) {
 				quit = true;
 			}
-
-			const bool shift = SDL_GetModState() & SDL_KMOD_LSHIFT;
-			const float amount = shift ? 0.1f : 0.01f;
 
 			const bool* kb = SDL_GetKeyboardState( NULL );
 			if ( kb[ SDL_SCANCODE_R ] ) {
@@ -1621,7 +1621,7 @@ void PrometheusInstance::initPoints () {
 
 	for ( int x = 0; x < gridWidth; x++ ) {
 		for ( int y = 0; y < gridHeight; y++ ) {
-			// float massX = std::uniform_real_distribution< float >( 0.1f, 5.0f )( seedRNG );
+			float massX = std::uniform_real_distribution< float >( 3.0f, 5.0f )( seedRNG );
 			// float rotX = std::uniform_real_distribution< float >( 0.1f, 100.5f )( seedRNG );
 
 			const int idx = x + gridWidth * y;
