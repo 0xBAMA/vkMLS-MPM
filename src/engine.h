@@ -154,6 +154,13 @@ public:
 	AllocatedImage massAtomic;
 	AllocatedImage resolvedAtomics;
 
+	// minimap parameters
+	float scalar = 5.0f;
+	int windowWidth = 800;
+	int windowHeight = 400;
+	int xOffset = 4520;
+	int yOffset = 2590;
+
 	// for simulation
 	int iterations = 10;
 	ComputeEffect EstimateVolume;

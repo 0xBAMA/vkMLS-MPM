@@ -344,6 +344,13 @@ void PrometheusInstance::MainLoop () {
 				ImGui::SliderFloat( "Mouse Size", &globalData.mouseSize, 0.001f, 100.0f );
 				ImGui::SliderFloat( "Mouse Force", &globalData.mouseForceScalar, 0.01f, 2.0f );
 				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.1f, 0.1f );
+
+				ImGui::SeparatorText( "Inset View" );
+				ImGui::SliderFloat( "Scale", &scalar, 1.0f, 10.0f );
+				ImGui::SliderInt( "Width", &windowWidth, 10.0f, 1600.0f );
+				ImGui::SliderInt( "Height", &windowHeight, 10.0f, 1600.0f );
+				ImGui::SliderInt( "X Offset", &xOffset, -10000.0f, 10000.0f );
+				ImGui::SliderInt( "Y Offset", &yOffset, -10000.0f, 10000.0f );
 				ImGui::End();
 			}
 
@@ -1135,11 +1142,8 @@ void PrometheusInstance::initComputePasses () {
 			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
 
 			// //set dynamic viewport and scissor
-			const float scalar = 5.0f;
-			const int windowWidth = 800;
-			const int windowHeight = 400;
-			viewport.x = scalar * ( -globalData.mouseLoc.x + windowWidth / 2.0f ) + windowWidth / 2.0f;
-			viewport.y = scalar * ( -globalData.mouseLoc.y + windowHeight / 2.0f ) + 1.5f * windowHeight;
+			viewport.x = scalar * ( -globalData.mouseLoc.x - windowWidth / 2.0f ) + xOffset;
+			viewport.y = scalar * ( -globalData.mouseLoc.y - windowHeight / 2.0f ) + yOffset;
 			viewport.width = scalar * ImageBufferResolution.width;
 			viewport.height = scalar * ImageBufferResolution.height;
 			vkCmdSetViewport( cmd, 0, 1, &viewport );
