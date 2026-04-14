@@ -32,6 +32,8 @@ void main () {
 	// defaulting
 	gl_PointSize = 1.0f;
 
+	index = gl_VertexIndex;
+
 	// writing the point locations
 	gl_Position = vec4( center, 0.0f, 1.0f );
 }

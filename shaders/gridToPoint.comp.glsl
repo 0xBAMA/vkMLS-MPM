@@ -30,46 +30,6 @@ layout ( rg32f, set = 0, binding = 5 ) uniform image2D resolvedAtomics;
 
 void main () {
 
-	/* Original:
-
-	// constructing affine per-particle momentum matrix from APIC / MLS-MPM.
-	// see APIC paper (https://web.archive.org/web/20190427165435/https://www.math.ucla.edu/~jteran/papers/JSSTS15.pdf), page 6
-	// below equation 11 for clarification. this is calculating C = B * (D^-1) for APIC equation 8,
-	// where B is calculated in the inner loop at (D^-1) = 4 is a constant when using quadratic interpolation functions
-	float2x2 B = 0;
-	for (uint gx = 0; gx < 3; ++gx) {
-		for (uint gy = 0; gy < 3; ++gy) {
-			float weight = weights[gx].x * weights[gy].y;
-
-			uint2 cell_x = math.uint2(cell_idx.x + gx - 1, cell_idx.y + gy - 1);
-			int cell_index = (int)cell_x.x * grid_res + (int)cell_x.y;
-
-			float2 dist = (cell_x - p.x) + 0.5f;
-			float2 weighted_velocity = grid[cell_index].v * weight;
-
-			// APIC paper equation 10, constructing inner term for B
-			var term = math.float2x2(weighted_velocity * dist.x, weighted_velocity * dist.y);
-
-			B += term;
-
-			p.v += weighted_velocity;
-		}
-	}
-	p.C = B * 4;
-
-
-	// deformation gradient update - MPM course, equation 181
-	// Fp' = (I + dt * p.C) * Fp
-	var Fp_new = math.float2x2(
-	1, 0,
-	0, 1
-	);
-	Fp_new += dt * p.C;
-	Fs[i] = math.mul(Fp_new, Fs[i]);
-
-	ps[i] = p;
-	*/
-
 	const int idx = int( gl_GlobalInvocationID.x );
 
 	// velocity is calculated from the grid each time
@@ -93,12 +53,7 @@ void main () {
 		for ( int gy = 0; gy < 3; ++gy ) {
 			float weight = weights[ gx ].x * weights[ gy ].y;
 			ivec2 cellIdxInner = ivec2( cellIdx.x + gx - 1, cellIdx.y + gy - 1 );
-			vec2 dist = ( cellIdxInner - points[ idx ].position ) + 0.5f;
-
-//			vec2 velocity = vec2(
-//				imageLoad( velocityXAtomic, cellIdxInner ).r,
-//				imageLoad( velocityYAtomic, cellIdxInner ).r
-//			) / GlobalData.fixedPointScalar;
+			 vec2 dist = ( cellIdxInner - points[ idx ].position ) + 0.5f;
 
 			vec2 velocity = imageLoad( resolvedAtomics, cellIdxInner ).xy;
 			vec2 weightedVelocity = velocity * weight;
@@ -119,12 +74,12 @@ void main () {
 	// mouse interaction
 	if ( GlobalData.mouseLoc.z > 0.5f ) {
 		vec2 dist = points[ idx ].position - GlobalData.mouseLoc.xy;
-		const float MouseSize = 50.0f;
+		const float MouseSize = 75.0f;
 
 		if ( dot( dist, dist ) < MouseSize * MouseSize ) {
 			float norm_factor = ( length( dist ) / MouseSize );
 			norm_factor = pow( sqrt( norm_factor ), 8 );
-			vec2 force = normalize(dist) * norm_factor * 0.5f;
+			vec2 force = normalize( dist ) * norm_factor * 0.5f;
 			points[ idx ].velocity += force;
 		}
 	}

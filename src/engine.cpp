@@ -209,36 +209,14 @@ void PrometheusInstance::Draw () {
 		globalData.reset = 0;
 
 		// Precomputing the volume term for the points
+		initPoints();
+		BufferClears( cmd );
 		PointToGrid.invoke( cmd );
 		EstimateVolume.invoke( cmd );
 	}
 
 	// main sim loop - 4 steps
-	{
-		// clearing the grid can just be clears
-		VkImageSubresourceRange range = {
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel = 0,
-			.levelCount = VK_REMAINING_MIP_LEVELS,
-			.baseArrayLayer = 0,
-			.layerCount = VK_REMAINING_ARRAY_LAYERS
-		};
-		VkClearColorValue clearColor = { 0, 0, 0, 0 };
-		vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
-		vkCmdClearColorImage( cmd, velocityYAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
-		vkCmdClearColorImage( cmd, massAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
-		VkImageMemoryBarrier2 barriers[ 3 ] = {
-			makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
-			makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
-			makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
-		};
-		VkDependencyInfo barrierDependency {
-			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-			.imageMemoryBarrierCount = 3,
-			.pImageMemoryBarriers = barriers
-		};
-		vkCmdPipelineBarrier2( cmd, &barrierDependency );
-	}
+	BufferClears( cmd );
 	PointToGrid.invoke( cmd );
 	UpdateGrid.invoke( cmd );
 	GridToPoint.invoke( cmd );
@@ -326,7 +304,6 @@ void PrometheusInstance::MainLoop () {
 			const bool* kb = SDL_GetKeyboardState( NULL );
 			if ( kb[ SDL_SCANCODE_R ] ) {
 				globalData.reset = true;
-				initPoints();
 			}
 
 			if ( kb[ SDL_SCANCODE_T ] && shift ) {
@@ -1566,20 +1543,56 @@ void PrometheusInstance::initPoints () {
 	point* data = ( point* ) pointBuffer.allocation->GetMappedData();
 	const vec2 centerpoint = vec2( SimResolution.width, SimResolution.height ) / 2.0f;
 
-	for ( int x = 0; x < 640; x++ ) {
-		for ( int y = 0; y < 480; y++ ) {
+	// static thread_local std::mt19937 seedRNG( [] {
+		// std::random_device rd;
+		// std::seed_seq seq{  rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
+		// return std::mt19937( seq );
+	// } () );
 
-			const int idx = x + 640 * y;
+	for ( int x = 0; x < 1280; x++ ) {
+		for ( int y = 0; y < 720; y++ ) {
+			// float massX = std::uniform_real_distribution< float >( 1.0f, 3.0f )( seedRNG );
+
+			const int idx = x + 1280 * y;
 			data[ idx ] = point();
 
-			data[ idx ].position = centerpoint + vec2( x - 320.0f, y - 240.0f ) * 1.5f;
-			data[ idx ].velocity = vec2( 4.0f, 10.0f );
+			data[ idx ].position = centerpoint + vec2( x - 640.0f, y - 360.0f ) * 1.0f;
+			data[ idx ].velocity = vec2( 0.0f, 0.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
 			data[ idx ].mass = 1.0f;
-
 		}
 	}
+}
+
+void PrometheusInstance::BufferClears ( VkCommandBuffer cmd ) {
+	// clearing the grid can just be clears
+	VkImageSubresourceRange range = {
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.baseMipLevel = 0,
+		.levelCount = VK_REMAINING_MIP_LEVELS,
+		.baseArrayLayer = 0,
+		.layerCount = VK_REMAINING_ARRAY_LAYERS
+	};
+	VkClearColorValue clearColor;
+	clearColor.int32[ 0 ] = 0;
+	clearColor.int32[ 1 ] = 0;
+	clearColor.int32[ 2 ] = 0;
+	clearColor.int32[ 3 ] = 0;
+	vkCmdClearColorImage( cmd, velocityXAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
+	vkCmdClearColorImage( cmd, velocityYAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
+	vkCmdClearColorImage( cmd, massAtomic.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range );
+	VkImageMemoryBarrier2 barriers[ 3 ] = {
+		makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+		makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+		makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+	};
+	VkDependencyInfo barrierDependency {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 3,
+		.pImageMemoryBarriers = barriers
+	};
+	vkCmdPipelineBarrier2( cmd, &barrierDependency );
 }
 
 //==============================================================================================

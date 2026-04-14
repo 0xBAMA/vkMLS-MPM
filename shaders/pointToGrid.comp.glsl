@@ -34,7 +34,7 @@ void main () {
 	// points make atomic writes on the buffers
 		// ( momentum, mass )
 
-	mat2 stress = mat2( 0 );
+	mat2 stress = mat2( 0.0f );
 	mat2 F = p.Fs;
 
 	float J = determinant( F );

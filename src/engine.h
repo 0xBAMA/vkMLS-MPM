@@ -20,7 +20,7 @@ struct point {
 	glm::mat2 Fs{ 1.0f };
 
 	float mass { 1.0f };
-	float v0 { 0.0f };
+	float v0 { 1.0f };
 
 	vec2 pad;
 };
@@ -71,13 +71,16 @@ struct GlobalData {
 	float brightnessScalar{ 1.0f };
 	float resolutionScalar{ 1.0f };
 
-	float gravityScalar{ 0.3f };
+	float gravityScalar{ 0.0f };
 	float fixedPointScalar{ 10000.0f };
 
 	float dt{ 0.1f };
 
 	// Lamé parameters for stress-strain relationship
-	float elasticLambda = 10.0f;
+	// float elasticLambda = 10.0f;
+	// float elasticMu = 20.0f;
+
+	float elasticLambda = 2.0f;
 	float elasticMu = 20.0f;
 };
 
@@ -134,7 +137,8 @@ public:
 	AllocatedImage Accumulator;
 
 	// data storage
-	uint32_t numPoints{ 640 * 480 };
+	// uint32_t numPoints{ 640 * 480 };
+	uint32_t numPoints{ 1280 * 720 };
 	AllocatedBuffer pointBuffer;
 
 	// and images... screen res
@@ -149,6 +153,7 @@ public:
 	ComputeEffect PointToGrid;
 	ComputeEffect UpdateGrid;
 	ComputeEffect GridToPoint;
+	void BufferClears( VkCommandBuffer cmd );
 
 	// for rendering
 	ComputeEffect PointRaster;

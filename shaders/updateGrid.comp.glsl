@@ -44,17 +44,19 @@ void main () {
 		if ( mass != 0 ) { // there has been some write to this cell
 			// normalizing by dividing by the mass
 			v /= ( float( mass ) / GlobalData.fixedPointScalar );
+
+			// force of gravity
+			v += GlobalData.dT * vec2( 0.0f, GlobalData.gravityScalar );
+
+			// "slip" condition at the boundaries
+			if ( loc.x < 2 || loc.x > ( size.x - 3 ) ) v.x = 0.0f;
+			if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
+
+			// clamping max velocity
+			v = clamp( v, vec2( -20.0f ), vec2( 20.0f ) );
+
+			// storing back floating point value of V
+			imageStore( resolvedAtomics, loc, vec4( v.xyxy ) );
 		}
-
-		v += GlobalData.dT * vec2( 0.0f, GlobalData.gravityScalar );
-
-		// "slip" condition at the boundaries
-		if ( loc.x < 2 || loc.x > ( size.x - 3 ) ) v.x = 0.0f;
-		if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
-
-		// storing back fixed point value of V
-		//	imageStore( velocityXAtomic, loc, ivec4( v.x * GlobalData.fixedPointScalar ) );
-		//	imageStore( velocityYAtomic, loc, ivec4( v.y * GlobalData.fixedPointScalar ) );
-		imageStore( resolvedAtomics, loc, vec4( v.xyxy ) );
 	}
 }
