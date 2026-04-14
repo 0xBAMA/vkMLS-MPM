@@ -42,6 +42,11 @@ inline std::string timeDateString () {
 	return ssA.str();
 }
 
+glm::mat2 Rotate2D ( float a ) {
+	float c = cos( a ), s = sin( a );
+	return glm::mat2( c, s, -s, c );
+}
+
 void PrometheusInstance::SetDebugName ( VkObjectType type, uint64_t handle, const char* name ) {
 	// Must call extension functions through a function pointer:
 	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT = ( PFN_vkSetDebugUtilsObjectNameEXT ) vkGetInstanceProcAddr( instance, "vkSetDebugUtilsObjectNameEXT" );
@@ -105,7 +110,6 @@ void PrometheusInstance::Init () {
 	initComputePasses();
 	initImgui();
 	initDefaultData();
-	initPoints();
 
 	// everything went fine
 	isInitialized = true;
@@ -210,6 +214,14 @@ void PrometheusInstance::Draw () {
 
 		// Precomputing the volume term for the points
 		initPoints();
+		VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
+		VkDependencyInfo barrierDependency {
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.bufferMemoryBarrierCount = 1,
+			.pBufferMemoryBarriers = &barrier,
+		};
+		vkCmdPipelineBarrier2( cmd, &barrierDependency );
+
 		BufferClears( cmd );
 		PointToGrid.invoke( cmd );
 		EstimateVolume.invoke( cmd );
@@ -1552,24 +1564,26 @@ void PrometheusInstance::initPoints () {
 	point* data = ( point* ) pointBuffer.allocation->GetMappedData();
 	const vec2 centerpoint = vec2( SimResolution.width, SimResolution.height ) / 2.0f;
 
-	// static thread_local std::mt19937 seedRNG( [] {
-		// std::random_device rd;
-		// std::seed_seq seq{  rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
-		// return std::mt19937( seq );
-	// } () );
+	static thread_local std::mt19937 seedRNG( [] {
+		std::random_device rd;
+		std::seed_seq seq{  rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
+		return std::mt19937( seq );
+	} () );
 
-	for ( int x = 0; x < 1280; x++ ) {
-		for ( int y = 0; y < 720; y++ ) {
-			// float massX = std::uniform_real_distribution< float >( 1.0f, 3.0f )( seedRNG );
+	for ( int x = 0; x < gridWidth; x++ ) {
+		for ( int y = 0; y < gridHeight; y++ ) {
+			// float massX = std::uniform_real_distribution< float >( 0.1f, 5.0f )( seedRNG );
+			// float rotX = std::uniform_real_distribution< float >( 0.1f, 100.5f )( seedRNG );
 
-			const int idx = x + 1280 * y;
+			const int idx = x + gridWidth * y;
 			data[ idx ] = point();
 
-			data[ idx ].position = centerpoint + vec2( x - 640.0f, y - 360.0f ) * 1.0f;
+			data[ idx ].position = centerpoint + vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * 1.0f;
 			data[ idx ].velocity = vec2( 0.0f, 0.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
 			data[ idx ].mass = 1.0f;
+			// data[ idx ].mass = massX;
 		}
 	}
 }
