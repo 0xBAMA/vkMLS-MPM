@@ -1627,8 +1627,8 @@ void PrometheusInstance::initPoints () {
 			data[ idx ].velocity = vec2( 0.0f, 0.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
-			data[ idx ].mass = 1.0f;
-			// data[ idx ].mass = massX;
+			// data[ idx ].mass = 1.0f;
+			data[ idx ].mass = massX;
 		}
 	}
 }
