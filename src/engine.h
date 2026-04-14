@@ -66,7 +66,7 @@ struct GlobalData {
 	glm::vec3 mouseLoc;
 
 	int frameNumber{ 0 };
-	int reset{ 0 };
+	int reset{ 1 };
 
 	float brightnessScalar{ 1.0f };
 	float resolutionScalar{ 1.0f };
@@ -74,19 +74,24 @@ struct GlobalData {
 	float gravityScalar{ 0.0f };
 	float fixedPointScalar{ 10000.0f };
 
-	float dt{ 0.1f };
+	float dt{ 0.01f };
 
 	// Lamé parameters for stress-strain relationship
 	// float elasticLambda = 10.0f;
 	// float elasticMu = 20.0f;
 
 	float elasticLambda = 2.0f;
-	float elasticMu = 20.0f;
+	float elasticMu = 10.0f;
+
+	float mouseSize { 20.0f };
+	float mouseForceScalar { 0.75f };
 };
 
 // smallest scope CPU->GPU passing of information
 struct PushConstants {
 	uint32_t wangSeed;
+
+	float pointScale{ 1.0f };
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -137,8 +142,9 @@ public:
 	AllocatedImage Accumulator;
 
 	// data storage
-	// uint32_t numPoints{ 640 * 480 };
-	uint32_t numPoints{ 1280 * 720 };
+	uint32_t gridWidth = 1280;
+	uint32_t gridHeight = 720;
+	uint32_t numPoints{ gridWidth * gridHeight };
 	AllocatedBuffer pointBuffer;
 
 	// and images... screen res
@@ -149,6 +155,7 @@ public:
 	AllocatedImage resolvedAtomics;
 
 	// for simulation
+	int iterations = 10;
 	ComputeEffect EstimateVolume;
 	ComputeEffect PointToGrid;
 	ComputeEffect UpdateGrid;

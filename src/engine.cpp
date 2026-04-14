@@ -227,11 +227,13 @@ void PrometheusInstance::Draw () {
 		EstimateVolume.invoke( cmd );
 	}
 
-	// main sim loop - 4 steps
-	BufferClears( cmd );
-	PointToGrid.invoke( cmd );
-	UpdateGrid.invoke( cmd );
-	GridToPoint.invoke( cmd );
+	for ( int i = 0; i < iterations; ++i ) {
+		// main sim loop - 4 steps
+		BufferClears( cmd );
+		PointToGrid.invoke( cmd );
+		UpdateGrid.invoke( cmd );
+		GridToPoint.invoke( cmd );
+	}
 
 	// Point drawing
 	PointRaster.invoke( cmd );
