@@ -24,14 +24,14 @@ layout( set = 0, binding = 1, std430 ) readonly buffer pointBuffer {
 };
 
 layout ( location = 0 ) out flat uint index;
+layout ( location = 1 ) out flat float radius;
 
 void main () {
 	vec2 center = ( 2.0f * points[ gl_VertexIndex ].position.xy / GlobalData.accumulatorResolution.xy ) - vec2( 1.0f );
 	center.x *= GlobalData.accumulatorResolution.x / GlobalData.accumulatorResolution.y;
 
-	// defaulting
-	gl_PointSize = 1.0f;
-
+	// outputs
+	radius = gl_PointSize = PushConstants.pointScale;
 	index = gl_VertexIndex;
 
 	// writing the point locations

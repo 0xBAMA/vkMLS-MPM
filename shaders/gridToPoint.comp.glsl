@@ -71,16 +71,25 @@ void main () {
 	// boundary condition
 	points[ idx ].position = clamp( points[ idx ].position, vec2( 1.0f ), vec2( imageSize( massAtomic ).xy - 2 ) );
 
+	// something to try: doesn't work with slip condition
+//	const ivec2 iS = ivec2( imageSize( massAtomic ).xy );
+//	if ( points[ idx ].position.x >= iS.x ) points[ idx ].position.x -= iS.x;
+//	if ( points[ idx ].position.x < 0.0f ) points[ idx ].position.x += iS.x;
+//	if ( points[ idx ].position.y >= iS.y ) points[ idx ].position.y -= iS.y;
+//	if ( points[ idx ].position.y < 0.0f ) points[ idx ].position.y += iS.y;
+
 	// mouse interaction
 	if ( GlobalData.mouseLoc.z > 0.5f ) {
-		vec2 dist = points[ idx ].position - GlobalData.mouseLoc.xy;
-		const float MouseSize = 75.0f;
+		vec2 dist = vec2( 1.0f, 1.0f ) * ( points[ idx ].position - GlobalData.mouseLoc.xy );
+//		const float MouseSize = 65.0f;
+		float MouseSize = GlobalData.mouseSize;
 
 		if ( dot( dist, dist ) < MouseSize * MouseSize ) {
 			float norm_factor = ( length( dist ) / MouseSize );
 			norm_factor = pow( sqrt( norm_factor ), 8 );
-			vec2 force = normalize( dist ) * norm_factor * 0.5f;
-			points[ idx ].velocity += force;
+			vec2 force = normalize( dist ) * norm_factor * GlobalData.mouseForceScalar;
+//			points[ idx ].velocity += force;
+			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.0f );
 		}
 	}
 

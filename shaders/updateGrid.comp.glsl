@@ -53,7 +53,11 @@ void main () {
 			if ( loc.y < 2 || loc.y > ( size.y - 3 ) ) v.y = 0.0f;
 
 			// clamping max velocity
-			v = clamp( v, vec2( -20.0f ), vec2( 20.0f ) );
+			vec2 vCache = v;
+			v = clamp( v, vec2( -1000.0f ), vec2( 1000.0f ) );
+			if ( v != vCache ) {
+				v = vec2( 0.001f );
+			}
 
 			// storing back floating point value of V
 			imageStore( resolvedAtomics, loc, vec4( v.xyxy ) );
