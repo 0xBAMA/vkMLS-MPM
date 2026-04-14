@@ -1130,11 +1130,59 @@ void PrometheusInstance::initComputePasses () {
 			vkCmdSetScissor( cmd, 0, 1, &scissor );
 
 			// draw all the agents as points
+			PointRaster.pushConstants.pointScale = 1.0f;
 			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
 			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
 
 			// launch a draw command to do the fullscreen triangle
 			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
+
+			// //set dynamic viewport and scissor
+			const float scalar = 5.0f;
+			const int windowWidth = 800;
+			const int windowHeight = 400;
+			viewport.x = scalar * ( -globalData.mouseLoc.x + windowWidth / 2.0f ) + windowWidth / 2.0f;
+			viewport.y = scalar * ( -globalData.mouseLoc.y + windowHeight / 2.0f ) + 1.5f * windowHeight;
+			viewport.width = scalar * ImageBufferResolution.width;
+			viewport.height = scalar * ImageBufferResolution.height;
+			vkCmdSetViewport( cmd, 0, 1, &viewport );
+
+			scissor.offset.x = ImageBufferResolution.width - windowWidth;
+			scissor.offset.y = ImageBufferResolution.height - windowHeight;
+			scissor.extent.width = windowWidth;
+			scissor.extent.height = windowHeight;
+			vkCmdSetScissor( cmd, 0, 1, &scissor );
+
+			/*
+			VkClearAttachment clearAttachment = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.colorAttachment = 0,
+				.clearValue = {{0.0f, 0.0f, 0.0f, 0.2f}}
+			};
+
+			VkClearRect clearRect = {
+				.rect = {
+					.offset = scissor.offset,
+					.extent = scissor.extent
+				},
+				.baseArrayLayer = 0,
+				.layerCount = 1
+			};
+
+			vkCmdClearAttachments(
+				cmd,
+				1, &clearAttachment,
+				1, &clearRect
+			);
+			*/
+
+			PointRaster.pushConstants.pointScale = 5.0f;
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
+			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
+
+			// launch a draw command to do the fullscreen triangle
+			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
+
 			vkCmdEndRendering( cmd );
 
 			VkImageMemoryBarrier2 barrierC {
