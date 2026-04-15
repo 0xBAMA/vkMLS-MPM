@@ -1632,7 +1632,7 @@ void PrometheusInstance::initPoints () {
 			const int idx = x + gridWidth * y;
 			data[ idx ] = point();
 
-			data[ idx ].position = centerpoint + vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
+			data[ idx ].position = centerpoint + int( x / ( gridWidth / 15 ) ) * 10.0f + vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
 			data[ idx ].velocity = vec2( 0.0f, 0.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );

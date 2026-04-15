@@ -80,8 +80,8 @@ struct GlobalData {
 	// float elasticLambda = 10.0f;
 	// float elasticMu = 20.0f;
 
-	float elasticLambda = 10.0f;
-	float elasticMu = 2.0f;
+	float elasticLambda = 2.0f;
+	float elasticMu = 10.0f;
 
 	float mouseSize { 20.0f };
 	float mouseForceScalar { 0.75f };
