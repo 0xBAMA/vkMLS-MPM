@@ -56,7 +56,7 @@ void main () {
 			vec2 vCache = v;
 			v = clamp( v, vec2( -1000.0f ), vec2( 1000.0f ) );
 			if ( v != vCache ) {
-				v = vec2( 0.001f );
+				v = vec2( 0.0f );
 			}
 
 			// storing back floating point value of V

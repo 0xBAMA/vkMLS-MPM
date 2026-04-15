@@ -147,18 +147,23 @@ mat2 Rotate2D ( in float a ) {
 	return mat2( c, s, -s, c );
 }
 
+#include "random.h"
+
 void main () {
+//	seed = PushConstants.wangSeed + 42069 * index;
+
 	// analytic solution for sphere mask/height via pythagoras
 	if ( radius != 1.0f ) {
+		// vec2 sampleLocation = gl_PointCoord.xy + 0.5f * CircleOffset() / radius;
 		vec2 sampleLocation = gl_PointCoord.xy;
 		vec2 centered = sampleLocation * 2.0f - vec2( 1.0f );
 		float radiusSquared = dot( centered, centered );
-		if ( radiusSquared > 1.0f ) discard;
+		 if ( radiusSquared > 1.0f ) discard;
 	}
 
 //	outColor = vec4( 1.0f, 0.0f, 0.0f, 1.0f );
 //	outColor = vec4( 0.1f + abs( points[ index ].velocity / 10.0f ), 0.1f, 1.0f );
-	outColor = vec4( mix( xyY_to_rgb( vec3( Rotate2D( 0.3f + 0.1f * atan( points[ index ].velocity.x, points[ index ].velocity.y ) ) * vec2( 0.3f, 0.1f ), 0.1f * length( points[ index ].velocity ) ) ), vec3( 0.1f * points[ index ].mass  ), 0.5f ), 1.0f );
+	outColor = vec4( mix( xyY_to_rgb( vec3( Rotate2D( 0.3f + 0.1f * sin( atan( points[ index ].velocity.x, points[ index ].velocity.y ) ) ) * vec2( 0.3f, 0.1f ), 0.1f * length( points[ index ].velocity ) ) ), vec3( 0.1f * points[ index ].mass ), 0.5f ), 1.0f );
 
 //	vec3 baseColor = vec3( Rotate2D( points[ index ].mass * 0.1f ) * vec2( 0.1f, 0.1f ), 0.5f );
 //	outColor = vec4( mix( baseColor, vec3( 0.1f ), length( points[ index ].velocity ) ), 1.0f );

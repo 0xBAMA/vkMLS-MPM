@@ -31,7 +31,8 @@ void main () {
 	center.x *= GlobalData.accumulatorResolution.x / GlobalData.accumulatorResolution.y;
 
 	// outputs
-	radius = gl_PointSize = ( PushConstants.pointScale == 1.0f ) ? 1.0f : ( points[ gl_VertexIndex ].mass );
+	// radius = gl_PointSize = ( PushConstants.pointScale == 1.0f ) ? 1.0f : ( points[ gl_VertexIndex ].mass );
+	radius = gl_PointSize = ( PushConstants.pointScale == 1.0f ) ? 1.0f : 5.0f;
 	index = gl_VertexIndex;
 
 	// writing the point locations

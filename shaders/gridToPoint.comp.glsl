@@ -86,11 +86,22 @@ void main () {
 
 		if ( dot( dist, dist ) < MouseSize * MouseSize ) {
 			float norm_factor = ( length( dist ) / MouseSize );
-			norm_factor = pow( sqrt( norm_factor ), 8 );
+			norm_factor = pow( sqrt( norm_factor ), 10 );
 			vec2 force = normalize( dist ) * norm_factor * GlobalData.mouseForceScalar;
-//			points[ idx ].velocity += force;
-			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.0f );
+			points[ idx ].velocity += force;
+//			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.05f );
 		}
+	}
+
+	// clamping max in the Fs matrix
+	if (
+		abs( points[ idx ].Fs[ 0 ][ 0 ] ) > 100000.0f ||
+		abs( points[ idx ].Fs[ 1 ][ 0 ] ) > 100000.0f ||
+		abs( points[ idx ].Fs[ 0 ][ 1 ] ) > 100000.0f ||
+		abs( points[ idx ].Fs[ 1 ][ 1 ] ) > 100000.0f ) {
+		points[ idx ].velocity = vec2( 0.0f );
+		points[ idx ].C = mat2( 0.0f );
+		points[ idx ].Fs = mat2( 1.0f );
 	}
 
 	// deformation gradient update - MPM course, equation 181

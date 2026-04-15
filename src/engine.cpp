@@ -225,14 +225,14 @@ void PrometheusInstance::Draw () {
 		BufferClears( cmd );
 		PointToGrid.invoke( cmd );
 		EstimateVolume.invoke( cmd );
-	}
-
-	for ( int i = 0; i < iterations; ++i ) {
-		// main sim loop - 4 steps
-		BufferClears( cmd );
-		PointToGrid.invoke( cmd );
-		UpdateGrid.invoke( cmd );
-		GridToPoint.invoke( cmd );
+	} else {
+		for ( int i = 0; i < iterations; ++i ) {
+			// main sim loop - 4 steps
+			BufferClears( cmd );
+			PointToGrid.invoke( cmd );
+			UpdateGrid.invoke( cmd );
+			GridToPoint.invoke( cmd );
+		}
 	}
 
 	// Point drawing
@@ -317,7 +317,7 @@ void PrometheusInstance::MainLoop () {
 
 			const bool* kb = SDL_GetKeyboardState( NULL );
 			if ( kb[ SDL_SCANCODE_R ] ) {
-				globalData.reset = true;
+				globalData.reset = 1;
 			}
 
 			if ( kb[ SDL_SCANCODE_T ] && shift ) {
@@ -344,6 +344,8 @@ void PrometheusInstance::MainLoop () {
 				ImGui::SliderFloat( "Mouse Size", &globalData.mouseSize, 0.001f, 100.0f );
 				ImGui::SliderFloat( "Mouse Force", &globalData.mouseForceScalar, 0.01f, 2.0f );
 				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.1f, 0.1f );
+				ImGui::SliderFloat( "Timestep", &globalData.dt, 0.001f, 0.1f );
+				ImGui::SliderInt( "Iterations Per Frame", &iterations, 1, 25 );
 
 				ImGui::SeparatorText( "Inset View" );
 				ImGui::SliderFloat( "Scale", &scalar, 1.0f, 10.0f );
@@ -1133,8 +1135,9 @@ void PrometheusInstance::initComputePasses () {
 			scissor.extent.height = ImageBufferResolution.height;
 			vkCmdSetScissor( cmd, 0, 1, &scissor );
 
-			// draw all the agents as points
 			PointRaster.pushConstants.pointScale = 1.0f;
+			PointRaster.pushConstants.wangSeed = genWangSeed();
+
 			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
 			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
 
@@ -1178,6 +1181,8 @@ void PrometheusInstance::initComputePasses () {
 			*/
 
 			PointRaster.pushConstants.pointScale = 5.0f;
+			PointRaster.pushConstants.wangSeed = genWangSeed();
+
 			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
 			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
 
