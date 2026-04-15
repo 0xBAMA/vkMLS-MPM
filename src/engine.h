@@ -72,7 +72,7 @@ struct GlobalData {
 	float resolutionScalar{ 1.0f };
 
 	float gravityScalar{ 0.0f };
-	float fixedPointScalar{ 10000.0f };
+	float fixedPointScalar{ 100000.0f };
 
 	float dt{ 0.01f };
 
@@ -80,8 +80,8 @@ struct GlobalData {
 	// float elasticLambda = 10.0f;
 	// float elasticMu = 20.0f;
 
-	float elasticLambda = 2.0f;
-	float elasticMu = 10.0f;
+	float elasticLambda = 10.0f;
+	float elasticMu = 2.0f;
 
 	float mouseSize { 20.0f };
 	float mouseForceScalar { 0.75f };
@@ -142,8 +142,9 @@ public:
 	AllocatedImage Accumulator;
 
 	// data storage
-	uint32_t gridWidth = 1280;
-	uint32_t gridHeight = 720;
+	float gridScalar = 1.0f;
+	uint32_t gridWidth = 1200;
+	uint32_t gridHeight = 800;
 	uint32_t numPoints{ gridWidth * gridHeight };
 	AllocatedBuffer pointBuffer;
 
@@ -162,7 +163,7 @@ public:
 	int yOffset = 2590;
 
 	// for simulation
-	int iterations = 10;
+	int iterations = 1;
 	ComputeEffect EstimateVolume;
 	ComputeEffect PointToGrid;
 	ComputeEffect UpdateGrid;
