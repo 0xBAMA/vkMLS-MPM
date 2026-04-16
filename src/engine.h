@@ -22,7 +22,8 @@ struct point {
 	float mass { 1.0f };
 	float v0 { 1.0f };
 
-	vec2 pad;
+	int particleType{ 0 };
+	float pad;
 };
 
 struct DeletionQueue {

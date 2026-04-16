@@ -17,7 +17,8 @@ struct point {
 	float mass;
 	float v0;
 
-	vec2 pad;
+	int particleType;
+	float pad;
 };
 layout ( set = 0, binding = 1, std430 ) buffer pointBuffer {
 	point points[];

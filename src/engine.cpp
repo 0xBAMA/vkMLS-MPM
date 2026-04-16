@@ -1618,7 +1618,7 @@ void PrometheusInstance::initPoints () {
 
 	// updating point values
 	point* data = ( point* ) pointBuffer.allocation->GetMappedData();
-	const vec2 centerpoint = vec2( SimResolution.width, SimResolution.height ) / 2.0f;
+	vec2 centerpoint = vec2( SimResolution.width, SimResolution.height / 2.0f ) / 2.0f;
 
 	static thread_local std::mt19937 seedRNG( [] {
 		std::random_device rd;
@@ -1626,6 +1626,7 @@ void PrometheusInstance::initPoints () {
 		return std::mt19937( seq );
 	} () );
 
+	// first the neo-hookean particles
 	for ( int x = 0; x < gridWidth; x++ ) {
 		for ( int y = 0; y < gridHeight; y++ ) {
 			float massX = std::uniform_real_distribution< float >( 3.0f, 5.0f )( seedRNG );
@@ -1634,14 +1635,31 @@ void PrometheusInstance::initPoints () {
 			const int idx = x + gridWidth * y;
 			data[ idx ] = point();
 
-			data[ idx ].position = centerpoint + int( x / ( gridWidth / 15 ) ) * 10.0f + vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
+			data[ idx ].position = centerpoint + vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
 			data[ idx ].velocity = vec2( 0.0f, 0.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
+			data[ idx ].particleType = 0;
 			// data[ idx ].mass = 1.0f;
 			data[ idx ].mass = massX;
 		}
 	}
+
+	// then initialize the fluid particles, offset in the buffer
+	centerpoint.y += SimResolution.height / 2.0f;
+	for ( int x = 0; x < gridWidth; x++ ) {
+		for ( int y = 0; y < gridHeight; y++ ) {
+			const int idx = numPoints + x + gridWidth * y;
+			data[ idx ] = point();
+			data[ idx ].position = centerpoint + /* int( x / ( gridWidth / 15 ) ) * 10.0f + */ vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
+			data[ idx ].velocity = vec2( 0.0f, 0.0f );
+			data[ idx ].C = glm::mat2( 0.0f );
+			data[ idx ].Fs = glm::mat2( 1.0f );
+			data[ idx ].particleType = 1; // fluid
+			data[ idx ].mass = 1.0f;
+		}
+	}
+
 }
 
 void PrometheusInstance::BufferClears ( VkCommandBuffer cmd ) {
