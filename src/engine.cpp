@@ -343,7 +343,7 @@ void PrometheusInstance::MainLoop () {
 				ImGui::SliderFloat( "Elastic Lambda", &globalData.elasticLambda, 0.001f, 40.0f );
 				ImGui::SliderFloat( "Mouse Size", &globalData.mouseSize, 0.001f, 100.0f );
 				ImGui::SliderFloat( "Mouse Force", &globalData.mouseForceScalar, 0.01f, 2.0f );
-				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.1f, 0.1f );
+				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.01f, 0.01f, "%.5f" );
 				ImGui::SliderFloat( "Timestep", &globalData.dt, 0.001f, 0.1f );
 				ImGui::SliderInt( "Iterations Per Frame", &iterations, 1, 25 );
 
@@ -353,8 +353,8 @@ void PrometheusInstance::MainLoop () {
 				ImGui::SliderInt( "Height", &windowHeight, 10.0f, 1600.0f );
 				ImGui::SliderInt( "X Offset", &xOffset, -10000.0f, 10000.0f );
 				ImGui::SliderInt( "Y Offset", &yOffset, -10000.0f, 10000.0f );
-				ImGui::End();
 			}
+			ImGui::End();
 
 			// make imgui calculate internal draw structures
 			ImGui::Render();
