@@ -28,7 +28,9 @@ layout ( r32i, set = 0, binding = 3 ) uniform iimage2D velocityYAtomic;
 layout ( r32i, set = 0, binding = 4 ) uniform iimage2D massAtomic;
 layout ( rg32f, set = 0, binding = 5 ) uniform image2D resolvedAtomics;
 
+#include "random.h"
 void main () {
+	seed = PushConstants.wangSeed + gl_GlobalInvocationID.x * 8675309;
 
 	const int idx = int( gl_GlobalInvocationID.x );
 
@@ -89,7 +91,7 @@ void main () {
 			norm_factor = pow( sqrt( norm_factor ), 10 );
 			vec2 force = normalize( dist ) * norm_factor * GlobalData.mouseForceScalar;
 			points[ idx ].velocity += force;
-//			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.05f );
+//			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.05f * ( NormalizedRandomFloat() - 0.5f ) );
 		}
 	}
 
