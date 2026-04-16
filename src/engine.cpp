@@ -193,6 +193,8 @@ void PrometheusInstance::Draw () {
 	globalData.presentBufferResolution = glm::uvec2( drawExtent.width, drawExtent.height );
 	globalData.frameNumber = frameNumber;
 	globalData.resolutionScalar = renderScale;
+	globalData.numPoints = numPoints;
+	globalData.numPointsFluid = numPointsFluid;
 
 	// write directly from the memory on the PrometheusInstance
 	GlobalData* uniformData = ( GlobalData * ) GlobalUBO.allocation->GetMappedData();
@@ -1606,7 +1608,7 @@ void PrometheusInstance::initPoints () {
 		firstTime = false;
 
 		// create the buffer
-		pointBuffer = createBuffer( sizeof( point ) * numPoints, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU );
+		pointBuffer = createBuffer( sizeof( point ) * ( numPoints + numPointsFluid ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU );
 		SetDebugName( VK_OBJECT_TYPE_BUFFER, ( uint64_t ) pointBuffer.buffer, "Point Buffer" );
 
 		mainDeletionQueue.push_function( [ = ] () {

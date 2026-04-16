@@ -74,6 +74,9 @@ struct GlobalData {
 	float gravityScalar{ 0.0f };
 	float fixedPointScalar{ 100000.0f };
 
+	uint numPoints;
+	uint numPointsFluid;
+
 	float dt{ 0.01f };
 
 	// Lamé parameters for stress-strain relationship
@@ -143,9 +146,10 @@ public:
 
 	// data storage
 	float gridScalar = 1.0f;
-	uint32_t gridWidth = 1200;
-	uint32_t gridHeight = 800;
+	uint32_t gridWidth = 1800;
+	uint32_t gridHeight = 600;
 	uint32_t numPoints{ gridWidth * gridHeight };
+	uint32_t numPointsFluid{ gridWidth * gridHeight };
 	AllocatedBuffer pointBuffer;
 
 	// and images... screen res

@@ -24,6 +24,9 @@ layout( set = 0, binding = 0 ) uniform globalData {
 	float gravityScalar;
 	float fixedPointScalar;
 
+	uint numPoints;
+	uint numPointsFluid;
+
 	float dT;
 
 	// Lamé parameters for stress-strain relationship
