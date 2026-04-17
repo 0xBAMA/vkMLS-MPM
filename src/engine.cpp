@@ -343,6 +343,12 @@ void PrometheusInstance::MainLoop () {
 			if ( ImGui::Begin( "Controls" ) ) {
 				ImGui::SliderFloat( "Elastic Mu", &globalData.elasticMu, 0.001f, 40.0f );
 				ImGui::SliderFloat( "Elastic Lambda", &globalData.elasticLambda, 0.001f, 40.0f );
+				ImGui::Separator();
+				ImGui::SliderFloat( "Fluid Rest Density", &globalData.restDensity, 0.001f, 10.0f );
+				ImGui::SliderFloat( "Fluid Dynamic Viscosity", &globalData.dynamicViscosity, 0.001f, 1.0f );
+				ImGui::SliderFloat( "Fluid Equation of State Stiffness", &globalData.eosStiffness, 0.001f, 10.0f );
+				ImGui::SliderFloat( "Fluid Equation of State Power", &globalData.eosPower, 0.001f, 10.0f );
+				ImGui::Separator();
 				ImGui::SliderFloat( "Mouse Size", &globalData.mouseSize, 0.001f, 100.0f );
 				ImGui::SliderFloat( "Mouse Force", &globalData.mouseForceScalar, 0.01f, 2.0f );
 				ImGui::SliderFloat( "Gravity", &globalData.gravityScalar, -0.01f, 0.01f, "%.5f" );
@@ -702,7 +708,7 @@ void PrometheusInstance::initComputePasses () {
 			{
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
@@ -800,7 +806,7 @@ void PrometheusInstance::initComputePasses () {
 			{
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
@@ -904,7 +910,7 @@ void PrometheusInstance::initComputePasses () {
 			{
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
@@ -1009,7 +1015,7 @@ void PrometheusInstance::initComputePasses () {
 			{
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
 				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
@@ -1029,7 +1035,7 @@ void PrometheusInstance::initComputePasses () {
 			vkCmdPushConstants( cmd, GridToPoint.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &GridToPoint.pushConstants );
 
 			// dispatch for all the pixels
-			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
+			vkCmdDispatch( cmd, ( numPoints + numPointsFluid ) / 64, 1, 1 );
 
 			VkBufferMemoryBarrier2 barrier = makeBufferBarrier( pointBuffer.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT );
 			VkDependencyInfo barrierDependency {
@@ -1116,7 +1122,7 @@ void PrometheusInstance::initComputePasses () {
 			{
 				DescriptorWriter writer;
 				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-				writer.write_buffer( 1, pointBuffer.buffer, numPoints * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
 				writer.update_set( device, PointRaster.descriptorSet );
 			}
 
@@ -1143,8 +1149,7 @@ void PrometheusInstance::initComputePasses () {
 			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,  PointRaster.pipelineLayout, 0, 1, &PointRaster.descriptorSet, 0, nullptr );
 			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
 
-			// launch a draw command to do the fullscreen triangle
-			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
+			vkCmdDraw( cmd, numPoints + numPointsFluid, 1, 0, 0 );
 
 			// //set dynamic viewport and scissor
 			viewport.x = scalar * ( -globalData.mouseLoc.x - windowWidth / 2.0f ) + xOffset;
@@ -1189,7 +1194,7 @@ void PrometheusInstance::initComputePasses () {
 			vkCmdPushConstants( cmd, PointRaster.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointRaster.pushConstants );
 
 			// launch a draw command to do the fullscreen triangle
-			vkCmdDraw( cmd, numPoints, 1, 0, 0 );
+			vkCmdDraw( cmd, numPoints + numPointsFluid, 1, 0, 0 );
 
 			vkCmdEndRendering( cmd );
 
