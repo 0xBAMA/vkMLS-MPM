@@ -95,21 +95,22 @@ void main () {
 //			points[ idx ].velocity += GlobalData.mouseForceScalar * vec2( 0.1f, 0.05f * ( NormalizedRandomFloat() - 0.5f ) );
 		}
 	}
+	if ( points[ idx ].particleType == 0 ) {
+		// clamping max in the Fs matrix
+		if (
+			abs( points[ idx ].Fs[ 0 ][ 0 ] ) > 100000.0f ||
+			abs( points[ idx ].Fs[ 1 ][ 0 ] ) > 100000.0f ||
+			abs( points[ idx ].Fs[ 0 ][ 1 ] ) > 100000.0f ||
+			abs( points[ idx ].Fs[ 1 ][ 1 ] ) > 100000.0f ) {
+			points[ idx ].velocity = vec2( 0.0f );
+			points[ idx ].C = mat2( 0.0f );
+			points[ idx ].Fs = mat2( 1.0f );
+		}
 
-	// clamping max in the Fs matrix
-	if (
-		abs( points[ idx ].Fs[ 0 ][ 0 ] ) > 100000.0f ||
-		abs( points[ idx ].Fs[ 1 ][ 0 ] ) > 100000.0f ||
-		abs( points[ idx ].Fs[ 0 ][ 1 ] ) > 100000.0f ||
-		abs( points[ idx ].Fs[ 1 ][ 1 ] ) > 100000.0f ) {
-		points[ idx ].velocity = vec2( 0.0f );
-		points[ idx ].C = mat2( 0.0f );
-		points[ idx ].Fs = mat2( 1.0f );
+		// deformation gradient update - MPM course, equation 181
+		// Fp' = (I + dt * p.C) * Fp
+		mat2 Fp_new = mat2( 1.0f );
+		Fp_new += GlobalData.dT * points[ idx ].C;
+		points[ idx ].Fs = Fp_new * points[ idx ].Fs;
 	}
-
-	// deformation gradient update - MPM course, equation 181
-	// Fp' = (I + dt * p.C) * Fp
-	mat2 Fp_new = mat2( 1.0f );
-	Fp_new += GlobalData.dT * points[ idx ].C;
-	points[ idx ].Fs = Fp_new * points[ idx ].Fs;
 }

@@ -162,10 +162,9 @@ void main () {
 		 if ( radiusSquared > 1.0f ) discard;
 	}
 
-//	outColor = vec4( 1.0f, 0.0f, 0.0f, 1.0f );
-//	outColor = vec4( 0.1f + abs( points[ index ].velocity / 10.0f ), 0.1f, 1.0f );
-	outColor = vec4( mix( xyY_to_rgb( vec3( Rotate2D( 0.3f + 0.1f * sin( atan( points[ index ].velocity.x, points[ index ].velocity.y ) ) ) * vec2( 0.3f, 0.1f ), 0.1f * length( points[ index ].velocity ) ) ), vec3( 0.1f * points[ index ].mass ), 0.5f ), 1.0f );
-
-//	vec3 baseColor = vec3( Rotate2D( points[ index ].mass * 0.1f ) * vec2( 0.1f, 0.1f ), 0.5f );
-//	outColor = vec4( mix( baseColor, vec3( 0.1f ), length( points[ index ].velocity ) ), 1.0f );
+	if ( points[ index ].particleType == 0 ) { // neo-hookean
+		outColor = vec4( 0.1f + abs( points[ index ].velocity / 10.0f ), 0.1f, 1.0f );
+	} else if ( points[ index ].particleType == 1 ) { // fluid
+		outColor = vec4( mix( xyY_to_rgb( vec3( Rotate2D( 0.3f + 0.1f * sin( atan( points[ index ].velocity.x, points[ index ].velocity.y ) ) ) * vec2( 0.3f, 0.1f ), 0.1f * length( points[ index ].velocity ) ) ), vec3( 0.1f * points[ index ].mass ), 0.5f ), 1.0f );
+	}
 }
