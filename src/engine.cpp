@@ -189,7 +189,7 @@ void PrometheusInstance::Draw () {
 	// update the UBO contents
 	static float mouseX, mouseY;
 	auto ret = SDL_GetMouseState( &mouseX, &mouseY );
-	globalData.mouseLoc = glm::vec3( mouseX, mouseY, ( ret & SDL_BUTTON_LEFT ) ? 1.0f : 0.0f );
+	globalData.mouseLoc = glm::vec3( mouseX, mouseY, ( ( ret & SDL_BUTTON_LEFT ) && !ImGui::GetIO().WantCaptureMouse ) ? 1.0f : 0.0f );
 	globalData.presentBufferResolution = glm::uvec2( drawExtent.width, drawExtent.height );
 	globalData.frameNumber = frameNumber;
 	globalData.resolutionScalar = renderScale;
