@@ -73,10 +73,10 @@ struct GlobalData {
 	float resolutionScalar{ 1.0f };
 
 	float gravityScalar{ 0.0f };
-	float fixedPointScalar{ 100000.0f };
+	float fixedPointScalar{ 1000000.0f };
 
-	uint numPoints;
-	uint numPointsFluid;
+	uint32_t numPoints;
+	uint32_t numPointsFluid;
 
 	float dt{ 0.01f };
 
