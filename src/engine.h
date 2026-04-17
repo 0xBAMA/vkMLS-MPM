@@ -87,6 +87,12 @@ struct GlobalData {
 	float elasticLambda = 2.0f;
 	float elasticMu = 10.0f;
 
+	// new fluid parameters for Tait compressible fluid equation of state
+	float restDensity = 4.0f;
+	float dynamicViscosity = 0.1f;
+	float eosStiffness = 10.0f;
+	float eosPower = 4.0f;
+
 	float mouseSize { 20.0f };
 	float mouseForceScalar { 0.75f };
 };
@@ -147,10 +153,10 @@ public:
 
 	// data storage
 	float gridScalar = 1.0f;
-	uint32_t gridWidth = 1800;
-	uint32_t gridHeight = 600;
+	uint32_t gridWidth = 1500;
+	uint32_t gridHeight = 400;
 	uint32_t numPoints{ gridWidth * gridHeight };
-	uint32_t numPointsFluid{ gridWidth * gridHeight };
+	uint32_t numPointsFluid{ gridWidth * gridHeight / 2 };
 	AllocatedBuffer pointBuffer;
 
 	// and images... screen res
@@ -171,6 +177,8 @@ public:
 	int iterations = 1;
 	ComputeEffect EstimateVolume;
 	ComputeEffect PointToGrid;
+	ComputeEffect PointToGridFluidPass1;
+	ComputeEffect PointToGridFluidPass2;
 	ComputeEffect UpdateGrid;
 	ComputeEffect GridToPoint;
 	void BufferClears( VkCommandBuffer cmd );

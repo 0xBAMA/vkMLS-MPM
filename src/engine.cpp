@@ -229,9 +229,11 @@ void PrometheusInstance::Draw () {
 		EstimateVolume.invoke( cmd );
 	} else {
 		for ( int i = 0; i < iterations; ++i ) {
-			// main sim loop - 4 steps
+			// main sim loop - 4 steps + the additional 2 fluid steps
 			BufferClears( cmd );
 			PointToGrid.invoke( cmd );
+			PointToGridFluidPass1.invoke( cmd );
+			PointToGridFluidPass2.invoke( cmd );
 			UpdateGrid.invoke( cmd );
 			GridToPoint.invoke( cmd );
 		}
@@ -826,6 +828,212 @@ void PrometheusInstance::initComputePasses () {
 
 			// dispatch for all the pixels
 			vkCmdDispatch( cmd, ( numPoints ) / 64, 1, 1 );
+
+			// writes to the buffers must complete
+			VkImageMemoryBarrier2 barriers[ 3 ] = {
+				makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+			};
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 3,
+				.pImageMemoryBarriers = barriers
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
+	{ // PointToGridFluidPass1 - runs per point
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			PointToGridFluidPass1.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) PointToGridFluidPass1.descriptorSetLayout, "Point To Grid Fluid Pass 1 Descriptor Set Layout" );
+		}
+
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &PointToGridFluidPass1.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &PointToGridFluidPass1.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) PointToGridFluidPass1.pipelineLayout, "Point To Grid Fluid Pass 1 Pipeline Layout" );
+
+			VkShaderModule PointToGridShader;
+			if ( !vkutil::load_shader_module("../shaders/pointToGridFluidPass1.comp.glsl.spv", device, &PointToGridShader ) ) {
+				fmt::print( "Error when building the Point To Grid Fluid Pass 1 Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) PointToGridShader, "Point To Grid Fluid Pass 1 Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = PointToGridShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = PointToGridFluidPass1.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &PointToGridFluidPass1.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) PointToGridFluidPass1.pipeline, "Point To Grid Fluid Pass 1 Compute Pipeline" );
+			vkDestroyShaderModule( device, PointToGridShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, PointToGridFluidPass1.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, PointToGridFluidPass1.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, PointToGridFluidPass1.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		PointToGridFluidPass1.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			PointToGridFluidPass1.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, PointToGridFluidPass1.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, PointToGridFluidPass1.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGridFluidPass1.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGridFluidPass1.pipelineLayout, 0, 1, &PointToGridFluidPass1.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			PointToGridFluidPass1.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, PointToGridFluidPass1.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointToGridFluidPass1.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( numPointsFluid ) / 64, 1, 1 );
+
+			// writes to the buffers must complete
+			VkImageMemoryBarrier2 barriers[ 3 ] = {
+				makeImageBarrier( velocityXAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( velocityYAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT ),
+				makeImageBarrier( massAtomic.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT )
+			};
+			VkDependencyInfo barrierDependency {
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 3,
+				.pImageMemoryBarriers = barriers
+			};
+			vkCmdPipelineBarrier2( cmd, &barrierDependency );
+		};
+	}
+
+	{ // PointToGridFluidPass2 - runs per point
+		{ // descriptor layout
+			DescriptorLayoutBuilder builder;
+			builder.add_binding( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // global config UBO
+			builder.add_binding( 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // the point buffer
+			builder.add_binding( 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ); // three textures used for sim
+			builder.add_binding( 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			builder.add_binding( 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+			PointToGridFluidPass2.descriptorSetLayout = builder.build( device, VK_SHADER_STAGE_COMPUTE_BIT );
+			SetDebugName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, ( uint64_t ) PointToGridFluidPass2.descriptorSetLayout, "Point To Grid Fluid Pass 2 Descriptor Set Layout" );
+		}
+
+		{ // pipeline layout + compute pipeline
+			VkPushConstantRange pushConstant{};
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof( PushConstants );
+			pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+			VkPipelineLayoutCreateInfo computeLayout{};
+			computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			computeLayout.pNext = nullptr;
+			computeLayout.pSetLayouts = &PointToGridFluidPass2.descriptorSetLayout;
+			computeLayout.setLayoutCount = 1;
+			computeLayout.pPushConstantRanges = &pushConstant;
+			computeLayout.pushConstantRangeCount = 1;
+
+			VK_CHECK( vkCreatePipelineLayout( device, &computeLayout, nullptr, &PointToGridFluidPass2.pipelineLayout ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE_LAYOUT, ( uint64_t ) PointToGridFluidPass2.pipelineLayout, "Point To Grid Fluid Pass 2 Pipeline Layout" );
+
+			VkShaderModule PointToGridShader;
+			if ( !vkutil::load_shader_module("../shaders/pointToGridFluidPass2.comp.glsl.spv", device, &PointToGridShader ) ) {
+				fmt::print( "Error when building the Point To Grid Fluid Pass 2 Compute Shader\n" );
+			}
+			SetDebugName( VK_OBJECT_TYPE_SHADER_MODULE, ( uint64_t ) PointToGridShader, "Point To Grid Fluid Pass 2 Shader Module" );
+
+			VkPipelineShaderStageCreateInfo stageinfo{};
+			stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			stageinfo.pNext = nullptr;
+			stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageinfo.module = PointToGridShader;
+			stageinfo.pName = "main";
+
+			VkComputePipelineCreateInfo computePipelineCreateInfo{};
+			computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			computePipelineCreateInfo.pNext = nullptr;
+			computePipelineCreateInfo.layout = PointToGridFluidPass2.pipelineLayout;
+			computePipelineCreateInfo.stage = stageinfo;
+
+			VK_CHECK( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &PointToGridFluidPass2.pipeline ) );
+			SetDebugName( VK_OBJECT_TYPE_PIPELINE, ( uint64_t ) PointToGridFluidPass2.pipeline, "Point To Grid Fluid Pass 2 Compute Pipeline" );
+			vkDestroyShaderModule( device, PointToGridShader, nullptr );
+
+			// deletors for the pipeline layout + pipeline
+			mainDeletionQueue.push_function( [ & ] () {
+				vkDestroyDescriptorSetLayout( device, PointToGridFluidPass2.descriptorSetLayout, nullptr );
+				vkDestroyPipelineLayout( device, PointToGridFluidPass2.pipelineLayout, nullptr );
+				vkDestroyPipeline( device, PointToGridFluidPass2.pipeline, nullptr );
+			});
+		}
+
+		// invoke() lambda
+		PointToGridFluidPass2.invoke = [ & ] ( VkCommandBuffer cmd ){
+			// dynamic descriptor allocation, to bind a texture
+			PointToGridFluidPass2.descriptorSet = getCurrentFrame().frameDescriptors.allocate( device, PointToGridFluidPass2.descriptorSetLayout );
+			{
+				DescriptorWriter writer;
+				writer.write_buffer( 0, GlobalUBO.buffer, sizeof( GlobalData ), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+				writer.write_buffer( 1, pointBuffer.buffer, ( numPoints + numPointsFluid ) * sizeof( point ), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+				writer.write_image( 2, velocityXAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 3, velocityYAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.write_image( 4, massAtomic.imageView, defaultSamplerNearest, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE );
+				writer.update_set( device, PointToGridFluidPass2.descriptorSet );
+			}
+
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGridFluidPass2.pipeline );
+
+			// bind the descriptor set, as just recorded
+			vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PointToGridFluidPass2.pipelineLayout, 0, 1, &PointToGridFluidPass2.descriptorSet, 0, nullptr );
+
+			// get a new wang RNG seed
+			PointToGridFluidPass2.pushConstants.wangSeed = genWangSeed();
+
+			// send the current value of the push constants
+			vkCmdPushConstants( cmd, PointToGridFluidPass2.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( PushConstants ), &PointToGridFluidPass2.pushConstants );
+
+			// dispatch for all the pixels
+			vkCmdDispatch( cmd, ( numPointsFluid ) / 64, 1, 1 );
 
 			// writes to the buffers must complete
 			VkImageMemoryBarrier2 barriers[ 3 ] = {
@@ -1634,7 +1842,7 @@ void PrometheusInstance::initPoints () {
 	// first the neo-hookean particles
 	for ( int x = 0; x < gridWidth; x++ ) {
 		for ( int y = 0; y < gridHeight; y++ ) {
-			float massX = std::uniform_real_distribution< float >( 3.0f, 5.0f )( seedRNG );
+			// float massX = std::uniform_real_distribution< float >( 3.0f, 5.0f )( seedRNG );
 			// float rotX = std::uniform_real_distribution< float >( 0.1f, 100.5f )( seedRNG );
 
 			const int idx = x + gridWidth * y;
@@ -1645,21 +1853,20 @@ void PrometheusInstance::initPoints () {
 			data[ idx ].C = glm::mat2( 0.0f );
 			data[ idx ].Fs = glm::mat2( 1.0f );
 			data[ idx ].particleType = 0;
-			// data[ idx ].mass = 1.0f;
-			data[ idx ].mass = massX;
+			data[ idx ].mass = 1.0f;
+			// data[ idx ].mass = massX;
 		}
 	}
 
 	// then initialize the fluid particles, offset in the buffer
-	centerpoint.y += SimResolution.height / 2.0f;
+	centerpoint.y += SimResolution.height / 3.0f;
 	for ( int x = 0; x < gridWidth; x++ ) {
-		for ( int y = 0; y < gridHeight; y++ ) {
+		for ( int y = 0; y < gridHeight / 2; y++ ) {
 			const int idx = numPoints + x + gridWidth * y;
 			data[ idx ] = point();
-			data[ idx ].position = centerpoint + /* int( x / ( gridWidth / 15 ) ) * 10.0f + */ vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar;
-			data[ idx ].velocity = vec2( 0.0f, 0.0f );
+			data[ idx ].position = centerpoint + /* int( x / ( gridWidth / 15 ) ) * 10.0f + */ vec2( x - gridWidth / 2.0f, y - gridHeight / 2.0f ) * gridScalar * 1.5f;
+			data[ idx ].velocity = vec2( 0.0f, -1.0f );
 			data[ idx ].C = glm::mat2( 0.0f );
-			data[ idx ].Fs = glm::mat2( 1.0f );
 			data[ idx ].particleType = 1; // fluid
 			data[ idx ].mass = 1.0f;
 		}
