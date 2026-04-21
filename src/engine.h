@@ -153,7 +153,7 @@ public:
 
 	// data storage
 	float gridScalar = 1.0f;
-	uint32_t gridWidth = 1500;
+	uint32_t gridWidth = 500;
 	uint32_t gridHeight = 400;
 	uint32_t numPoints{ gridWidth * gridHeight };
 	uint32_t numPointsFluid{ gridWidth * gridHeight / 2 };
